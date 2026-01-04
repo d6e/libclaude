@@ -270,7 +270,7 @@ impl ClientConfigBuilder {
 
 **Tests**: Builder pattern tests, auth resolution tests
 
-**Status**: Not started
+**Status**: Complete
 
 ---
 

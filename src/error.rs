@@ -115,6 +115,11 @@ impl Error {
         }
     }
 
+    /// Create an IO error.
+    pub fn io(source: std::io::Error) -> Self {
+        Self::Io(source)
+    }
+
     /// Check if this error is related to authentication.
     pub fn is_auth_error(&self) -> bool {
         matches!(
@@ -132,6 +137,21 @@ impl Error {
     /// Check if this error is retryable.
     pub fn is_retryable(&self) -> bool {
         matches!(self, Error::Timeout(_) | Error::Io(_) | Error::StreamClosed)
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::Io(err)
+    }
+}
+
+impl From<serde_json::Error> for Error {
+    fn from(err: serde_json::Error) -> Self {
+        Error::JsonParse {
+            message: err.to_string(),
+            source: err,
+        }
     }
 }
 
@@ -175,5 +195,40 @@ mod tests {
         assert!(Error::StreamClosed.is_retryable());
         assert!(!Error::AuthNotConfigured.is_retryable());
         assert!(!Error::Cancelled.is_retryable());
+    }
+
+    #[test]
+    fn from_io_error() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let err: Error = io_err.into();
+        assert!(matches!(err, Error::Io(_)));
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn from_serde_json_error() {
+        let json_err = serde_json::from_str::<serde_json::Value>("invalid json").unwrap_err();
+        let err: Error = json_err.into();
+        assert!(matches!(err, Error::JsonParse { .. }));
+    }
+
+    #[test]
+    fn question_mark_operator_io() {
+        fn fallible_io() -> Result<()> {
+            let _file = std::fs::File::open("/nonexistent/path/that/does/not/exist")?;
+            Ok(())
+        }
+        let result = fallible_io();
+        assert!(matches!(result, Err(Error::Io(_))));
+    }
+
+    #[test]
+    fn question_mark_operator_json() {
+        fn fallible_json() -> Result<()> {
+            let _: serde_json::Value = serde_json::from_str("not valid json")?;
+            Ok(())
+        }
+        let result = fallible_json();
+        assert!(matches!(result, Err(Error::JsonParse { .. })));
     }
 }

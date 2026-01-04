@@ -21,11 +21,31 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! ## Configuration
+//!
+//! ```ignore
+//! use libclaude::config::{ClientConfig, Model, PermissionMode};
+//!
+//! let config = ClientConfig::builder()
+//!     .api_key("sk-ant-...")
+//!     .model(Model::Opus)
+//!     .permission_mode(PermissionMode::BypassPermissions)
+//!     .max_budget_usd(5.00)
+//!     .build()?;
+//! ```
 
+pub mod config;
 mod error;
 pub mod protocol;
 
 pub use error::{Error, Result};
+
+// Re-export commonly used config types at crate root
+pub use config::{
+    has_oauth_credentials, login_interactive, setup_token, AuthMethod, ClientConfig,
+    ClientConfigBuilder, Model, OAuthCredentials, PermissionMode, SessionId,
+};
 
 // Re-export commonly used protocol types at crate root
 pub use protocol::{CliMessage, ContentBlock, StreamEventType, Usage};
