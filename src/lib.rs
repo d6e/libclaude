@@ -23,5 +23,9 @@
 //! ```
 
 mod error;
+pub mod protocol;
 
 pub use error::{Error, Result};
+
+// Re-export commonly used protocol types at crate root
+pub use protocol::{CliMessage, ContentBlock, StreamEventType, Usage};

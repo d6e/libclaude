@@ -62,7 +62,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 **Tests**: Unit tests for JSON parsing of each message type
 
-**Status**: Not started
+**Status**: Complete
 
 ---
 
