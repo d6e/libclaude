@@ -323,7 +323,7 @@ const MIN_CLI_VERSION: &str = "2.0.0";
 
 **Tests**: Integration tests with real CLI (marked #[ignore])
 
-**Status**: Not started
+**Status**: Complete
 
 ---
 
