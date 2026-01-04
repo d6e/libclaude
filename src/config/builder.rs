@@ -42,6 +42,7 @@ pub struct ClientConfig {
     pub(crate) append_system_prompt: Option<String>,
 
     // Tools configuration
+    pub(crate) tools: Option<Vec<String>>,
     pub(crate) allowed_tools: Option<Vec<String>>,
     pub(crate) disallowed_tools: Option<Vec<String>>,
 
@@ -96,7 +97,7 @@ impl ClientConfig {
 ///
 /// This builder validates the configuration when [`build()`](ClientConfigBuilder::build) is called,
 /// ensuring that authentication is properly configured and the CLI can be found.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ClientConfigBuilder {
     // Authentication
     auth_method: AuthMethod,
@@ -111,6 +112,7 @@ pub struct ClientConfigBuilder {
     append_system_prompt: Option<String>,
 
     // Tools configuration
+    tools: Option<Vec<String>>,
     allowed_tools: Option<Vec<String>>,
     disallowed_tools: Option<Vec<String>>,
 
@@ -132,6 +134,33 @@ pub struct ClientConfigBuilder {
     timeout: Option<Duration>,
     env_vars: HashMap<String, String>,
     inherit_env: bool,
+}
+
+impl Default for ClientConfigBuilder {
+    fn default() -> Self {
+        Self {
+            auth_method: AuthMethod::default(),
+            fallbacks: Vec::new(),
+            model: None,
+            permission_mode: PermissionMode::default(),
+            system_prompt: None,
+            append_system_prompt: None,
+            tools: None,
+            allowed_tools: None,
+            disallowed_tools: None,
+            max_budget_usd: None,
+            mcp_config: None,
+            json_schema: None,
+            session_id: None,
+            continue_session: false,
+            include_partial_messages: false,
+            cli_path: None,
+            working_directory: None,
+            timeout: None,
+            env_vars: HashMap::new(),
+            inherit_env: true, // Default: inherit parent environment
+        }
+    }
 }
 
 impl ClientConfigBuilder {
@@ -223,6 +252,17 @@ impl ClientConfigBuilder {
     // -------------------------------------------------------------------------
     // Tools configuration
     // -------------------------------------------------------------------------
+
+    /// Set the complete list of available tools, replacing the default set.
+    ///
+    /// Use an empty slice to disable all tools, or provide specific tool names.
+    /// Use constants from [`crate::config::tools`].
+    ///
+    /// This differs from `allowed_tools` which acts as a whitelist on top of defaults.
+    pub fn tools(mut self, tools: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.tools = Some(tools.into_iter().map(Into::into).collect());
+        self
+    }
 
     /// Set allowed tools (whitelist).
     ///
@@ -368,6 +408,7 @@ impl ClientConfigBuilder {
             permission_mode: self.permission_mode,
             system_prompt: self.system_prompt,
             append_system_prompt: self.append_system_prompt,
+            tools: self.tools,
             allowed_tools: self.allowed_tools,
             disallowed_tools: self.disallowed_tools,
             max_budget_usd: self.max_budget_usd,
@@ -415,6 +456,15 @@ impl ClientConfig {
         if let Some(ref prompt) = self.append_system_prompt {
             args.push("--append-system-prompt".to_string());
             args.push(prompt.clone());
+        }
+
+        if let Some(ref tools) = self.tools {
+            args.push("--tools".to_string());
+            if tools.is_empty() {
+                args.push(String::new()); // Empty string disables all tools
+            } else {
+                args.push(tools.join(","));
+            }
         }
 
         if let Some(ref tools) = self.allowed_tools {
@@ -646,6 +696,32 @@ mod tests {
     }
 
     #[test]
+    fn tools_replaces_default_set() {
+        let config = ClientConfigBuilder::default()
+            .api_key("key")
+            .tools(vec!["Bash", "Read"])
+            .build()
+            .unwrap();
+
+        let args = config.build_args("test");
+        assert!(args.contains(&"--tools".to_string()));
+        assert!(args.contains(&"Bash,Read".to_string()));
+    }
+
+    #[test]
+    fn tools_empty_disables_all() {
+        let config = ClientConfigBuilder::default()
+            .api_key("key")
+            .tools(Vec::<String>::new())
+            .build()
+            .unwrap();
+
+        let args = config.build_args("test");
+        assert!(args.contains(&"--tools".to_string()));
+        assert!(args.contains(&String::new())); // Empty string
+    }
+
+    #[test]
     fn types_are_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<ClientConfig>();
@@ -664,5 +740,28 @@ mod tests {
             config.model(),
             Some(&Model::Custom("claude-3-5-sonnet-20241022".into()))
         );
+    }
+
+    #[test]
+    fn inherit_env_defaults_to_true() {
+        // Per IMPLEMENTATION_PLAN.md: "Don't inherit parent environment (default: inherit)"
+        // This means inherit_env should default to true
+        let config = ClientConfigBuilder::default()
+            .api_key("key")
+            .build()
+            .unwrap();
+
+        assert!(config.inherit_env, "inherit_env should default to true per plan");
+    }
+
+    #[test]
+    fn inherit_env_can_be_disabled() {
+        let config = ClientConfigBuilder::default()
+            .api_key("key")
+            .inherit_env(false)
+            .build()
+            .unwrap();
+
+        assert!(!config.inherit_env);
     }
 }

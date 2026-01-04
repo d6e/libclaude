@@ -154,7 +154,7 @@ pub async fn login_interactive() -> Result<()> {
         .arg("login")
         .status()
         .await
-        .map_err(|e| Error::ProcessSpawn(e))?;
+        .map_err(Error::ProcessSpawn)?;
 
     if !status.success() {
         return Err(Error::CliError {
@@ -176,7 +176,7 @@ pub async fn setup_token() -> Result<()> {
         .arg("setup-token")
         .status()
         .await
-        .map_err(|e| Error::ProcessSpawn(e))?;
+        .map_err(Error::ProcessSpawn)?;
 
     if !status.success() {
         return Err(Error::CliError {
