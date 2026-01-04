@@ -1,6 +1,22 @@
 [package]
 name = "libclaude"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+description = "Async Rust wrapper for Claude Code CLI"
+license = "MIT"
 
 [dependencies]
+tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt-multi-thread"] }
+tokio-stream = "0.1"
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }
+pin-project-lite = "0.2"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
