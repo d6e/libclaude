@@ -2,6 +2,7 @@
 name = "libclaude"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.75"
 description = "Async Rust wrapper for Claude Code CLI"
 license = "MIT"
 
@@ -15,6 +16,7 @@ thiserror = "2"
 tracing = "0.1"
 uuid = { version = "1", features = ["v4", "serde"] }
 pin-project-lite = "0.2"
+dirs = "5"
 
 [dev-dependencies]
 tokio-test = "0.4"
