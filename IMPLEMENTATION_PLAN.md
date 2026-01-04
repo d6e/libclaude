@@ -382,7 +382,7 @@ pub enum StreamEvent {
 
 **Tests**: Mock process tests
 
-**Status**: Not started
+**Status**: Complete
 
 ---
 

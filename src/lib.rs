@@ -39,6 +39,7 @@ pub mod config;
 mod error;
 pub mod process;
 pub mod protocol;
+pub mod stream;
 
 pub use error::{Error, Result};
 
@@ -53,3 +54,6 @@ pub use protocol::{CliMessage, ContentBlock, StreamEventType, Usage};
 
 // Re-export commonly used process types at crate root
 pub use process::{ClaudeProcess, ProcessReader};
+
+// Re-export commonly used stream types at crate root
+pub use stream::{CollectedResponse, ResponseStream, SessionInfo, StreamEvent};
