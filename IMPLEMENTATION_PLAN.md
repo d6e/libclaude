@@ -17,12 +17,48 @@ Create an async-first Rust library that wraps the Claude Code CLI for programmat
 **Goal**: Define all JSON protocol types with serde serialization
 
 **Files**:
-- `src/error.rs` - Error enum with thiserror (including auth errors)
+- `src/error.rs` - Error enum with thiserror
 - `src/protocol/mod.rs` - Module exports
 - `src/protocol/usage.rs` - Usage tracking struct
 - `src/protocol/content.rs` - ContentBlock enum (text, tool_use, tool_result)
 - `src/protocol/events.rs` - StreamEventType variants for streaming
 - `src/protocol/messages.rs` - CliMessage enum (system, assistant, user, stream_event, result)
+
+**Error enum**:
+```rust
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    // Configuration errors (detected at build() time)
+    #[error("no authentication method configured or resolvable")]
+    AuthNotConfigured,
+    #[error("invalid configuration: {0}")]
+    InvalidConfig(String),
+
+    // Spawn errors
+    #[error("claude CLI not found in PATH (searched: {searched})")]
+    CliNotFound { searched: String },
+    #[error("failed to spawn claude process: {0}")]
+    ProcessSpawn(#[source] std::io::Error),
+
+    // IO errors
+    #[error("IO error communicating with claude process: {0}")]
+    Io(#[from] std::io::Error),
+
+    // Protocol errors
+    #[error("failed to parse JSON from CLI output: {0}")]
+    JsonParse(#[from] serde_json::Error),
+    #[error("unexpected message type from CLI: {message_type}")]
+    UnexpectedMessage { message_type: String },
+
+    // Runtime errors
+    #[error("request timed out after {duration:?}")]
+    Timeout { duration: std::time::Duration },
+    #[error("CLI reported error: {message}")]
+    CliError { message: String, is_auth_error: bool },
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+```
 
 **Tests**: Unit tests for JSON parsing of each message type
 
@@ -132,7 +168,32 @@ impl ClientConfigBuilder {
     fn env(self, key: impl Into<String>, value: impl Into<String>) -> Self;
     /// Don't inherit parent environment (default: inherit)
     fn inherit_env(self, inherit: bool) -> Self;
+    /// Path to MCP configuration file
+    fn mcp_config(self, path: impl Into<PathBuf>) -> Self;
+    /// Constrain output to match JSON schema (enables structured output)
+    fn json_schema(self, schema: Value) -> Self;
+    /// Include intermediate assistant messages during tool execution
+    fn include_partial_messages(self, include: bool) -> Self;
 }
+```
+
+**Structured output** (JSON schema):
+When `json_schema` is set, Claude's final text output will conform to the schema. This enables type-safe response parsing:
+```rust
+// Basic usage with raw schema
+let client = ClaudeClient::builder()
+    .json_schema(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "answer": { "type": "string" },
+            "confidence": { "type": "number" }
+        },
+        "required": ["answer", "confidence"]
+    }))
+    .build()?;
+
+let response = client.send_and_collect("What is 2+2?").await?;
+let parsed: MyResponse = serde_json::from_str(&response)?;
 ```
 
 **Builder auth methods**:
@@ -220,13 +281,32 @@ impl ClientConfigBuilder {
 **Files**:
 - `src/process/mod.rs` - Module exports
 - `src/process/spawn.rs` - ClaudeProcess struct with spawn(), spawn_continue(), spawn_resume()
-- `src/process/io.rs` - ProcessReader (line-by-line JSON), ProcessWriter (stdin JSON)
+- `src/process/io.rs` - ProcessReader (line-by-line JSON), ProcessWriter (stdin for long prompts)
+
+**Process model**:
+Each API call spawns a new CLI process. Multi-turn sessions use `--continue` or `--resume` flags to load conversation history from CLI's session storage.
+
+```
+Turn 1: claude -p "prompt1" --output-format json
+Turn 2: claude -p "prompt2" --output-format json --continue
+Turn 3: claude -p "prompt3" --output-format json --resume <session_id>
+```
+
+**Input protocol**:
+- Prompts passed via `-p "prompt"` argument (primary method)
+- For prompts exceeding OS argument length limits (~128KB), fall back to stdin pipe
+- Stdin fallback: write prompt bytes, close stdin, read JSON from stdout
+
+**Session continuation**:
+- `--continue`: Resume most recent session (no ID needed)
+- `--resume <session_id>`: Resume specific session by ID
+- Session history managed by CLI, not the library
 
 **Key functionality**:
 - Build CLI args from ClientConfig
 - Handle stdin/stdout/stderr pipes
-- Parse JSON lines from stdout
-- Write JSON to stdin for streaming input
+- Parse JSON lines from stdout (newline-delimited)
+- Detect long prompts and use stdin fallback
 
 **CLI version check**:
 ```rust
@@ -257,15 +337,39 @@ const MIN_CLI_VERSION: &str = "2.0.0";
 - `src/stream/response.rs` - ResponseStream implementing futures::Stream
 
 **StreamEvent variants**:
-- `SessionInit(SessionInfo)` - Session metadata
-- `TextDelta { index, text }` - Token-by-token text
-- `ToolInputDelta { index, partial_json }` - Partial tool input
-- `ContentBlockComplete { index, block }` - Completed content
-- `AssistantMessage(AssistantMessage)` - Full message
-- `ToolResult(UserMessage)` - Tool execution result
-- `Complete(ResultMessage)` - Final result with cost/usage
-- `UsageUpdate(Usage)` - Incremental usage
-- `Error(String)` - Stream error
+```rust
+pub enum StreamEvent {
+    /// Session metadata (from system/init message). Always emitted first.
+    SessionInit(SessionInfo),
+    /// Token-by-token text. Always emitted during streaming.
+    TextDelta { index: usize, text: String },
+    /// Partial tool input JSON. Always emitted during streaming.
+    ToolInputDelta { index: usize, partial_json: String },
+    /// Completed content block. Always emitted.
+    ContentBlockComplete { index: usize, block: ContentBlock },
+    /// Full assistant message. Final message always emitted.
+    /// Intermediate messages only with `--include-partial-messages`.
+    AssistantMessage(AssistantMessage),
+    /// Tool execution result (from CLI's built-in tool execution).
+    ToolResult(UserMessage),
+    /// Final result with cost/usage. Always emitted last on success.
+    Complete(ResultMessage),
+    /// Incremental usage update. Emitted periodically during streaming.
+    UsageUpdate(Usage),
+}
+```
+
+**CLI flag requirements**:
+| Event | Required flag |
+|-------|---------------|
+| `SessionInit` | Always (with `--output-format json`) |
+| `TextDelta`, `ToolInputDelta` | Always (streaming is default) |
+| `ContentBlockComplete` | Always |
+| `AssistantMessage` (intermediate) | `--include-partial-messages` |
+| `AssistantMessage` (final) | Always |
+| `ToolResult` | Always (when tools execute) |
+| `Complete` | Always |
+| `UsageUpdate` | Always |
 
 **Implementation**:
 - Background tokio task reads ProcessReader
@@ -317,31 +421,81 @@ impl Session {
 }
 ```
 
-**Tests**: Integration tests
+**Thread safety**:
+All public types must be `Send + Sync` for use across async tasks. Add compile-time assertions:
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_send_sync<T: Send + Sync>() {}
+
+    #[test]
+    fn public_types_are_send_sync() {
+        assert_send_sync::<ClaudeClient>();
+        assert_send_sync::<Session>();
+        assert_send_sync::<ClientConfig>();
+        assert_send_sync::<ResponseStream>();
+    }
+}
+```
+
+**Tests**: Integration tests, thread safety assertions
 
 **Status**: Not started
 
 ---
 
-## Stage 6: Tool Handling
+## Stage 6: Tool Observability
 
-**Goal**: Custom tool handler registration
+**Goal**: Observe tool calls for logging, monitoring, and integration
+
+**Scope clarification**:
+The CLI executes tools automatically (Read, Bash, etc.). There is no mechanism to intercept tool calls for custom execution mid-turn. For custom tools, users should implement MCP servers (separate from this library).
+
+This stage provides **observability only**: callbacks when tools are called and when results are returned.
 
 **Files**:
 - `src/tools/mod.rs` - Module exports
-- `src/tools/handler.rs` - ToolHandler trait, ToolOutput struct
-- `src/tools/registry.rs` - ToolRegistry for registration/dispatch
+- `src/tools/observer.rs` - ToolObserver trait
 
-**ToolHandler trait**:
+**ToolObserver trait**:
 ```rust
-#[async_trait]
-pub trait ToolHandler: Send + Sync {
-    fn name(&self) -> &str;
-    async fn execute(&self, input: Value) -> Result<ToolOutput>;
+/// Observer for tool execution events. Called during stream processing.
+/// Implementations must be lightweight; blocking delays stream processing.
+pub trait ToolObserver: Send + Sync {
+    /// Called when Claude requests a tool call (from assistant message).
+    fn on_tool_use(&self, id: &str, name: &str, input: &Value) {}
+
+    /// Called when a tool result is received (from user message).
+    fn on_tool_result(&self, tool_use_id: &str, content: &str, is_error: bool) {}
+}
+
+/// Simple logging observer implementation.
+pub struct LoggingObserver {
+    level: tracing::Level,
 }
 ```
 
-**Tests**: Unit tests for registry
+**Usage**:
+```rust
+struct MyObserver;
+impl ToolObserver for MyObserver {
+    fn on_tool_use(&self, id: &str, name: &str, input: &Value) {
+        println!("Tool called: {} with {:?}", name, input);
+    }
+}
+
+let client = ClaudeClient::builder()
+    .tool_observer(Arc::new(MyObserver))
+    .build()?;
+```
+
+**Future work** (not in v1):
+- MCP server helpers for implementing custom tool servers
+- Tool call interception (if CLI adds support)
+
+**Tests**: Unit tests for observer dispatch
 
 **Status**: Not started
 
@@ -365,7 +519,8 @@ pub use config::options::{Model, PermissionMode, SessionId, tools};
 pub use error::{Error, Result};
 pub use session::Session;
 pub use stream::events::StreamEvent;
-pub use tools::handler::{ToolHandler, ToolOutput};
+pub use stream::response::ResponseStream;
+pub use tools::observer::{ToolObserver, LoggingObserver};
 pub use protocol::{CliMessage, ContentBlock, Usage, ...};
 ```
 
@@ -375,7 +530,12 @@ pub use protocol::{CliMessage, ContentBlock, Usage, ...};
 
 ## Dependencies
 
+**MSRV**: 1.75 (for native async fn in traits, no `async-trait` crate needed)
+
 ```toml
+[package]
+rust-version = "1.75"
+
 [dependencies]
 tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt-multi-thread"] }
 tokio-stream = "0.1"
@@ -386,6 +546,7 @@ thiserror = "2"
 tracing = "0.1"
 uuid = { version = "1", features = ["v4", "serde"] }
 pin-project-lite = "0.2"
+dirs = "5"  # for ~/.claude path resolution
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -424,8 +585,7 @@ src/
 │   └── io.rs
 └── tools/
     ├── mod.rs
-    ├── handler.rs
-    └── registry.rs
+    └── observer.rs
 ```
 
 ---
@@ -543,7 +703,7 @@ let response = session.send_and_collect("What's my name?").await?;
 ```rust
 let client = ClaudeClient::builder()
     .model(Model::Opus)
-    .permission_mode(PermissionMode::BypassAll)
+    .permission_mode(PermissionMode::BypassPermissions)
     .system_prompt("You are a coding assistant.")
     .append_system_prompt("Always use Rust.")
     .allowed_tools(vec!["Read".into(), "Glob".into()])
