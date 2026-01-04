@@ -426,4 +426,39 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<ClaudeProcess>();
     }
+
+    /// Ensures build_stdin_args stays in sync with build_args.
+    /// These functions are intentionally duplicated for clarity, but must produce
+    /// identical flags (except -p). This test catches divergence.
+    #[test]
+    fn build_args_and_stdin_args_parity() {
+        let config = crate::config::ClientConfig::builder()
+            .api_key("test")
+            .model(crate::config::Model::Opus)
+            .permission_mode(crate::config::PermissionMode::AcceptEdits)
+            .system_prompt("Be helpful")
+            .append_system_prompt("Extra instructions")
+            .tools(vec!["Read", "Write"])
+            .allowed_tools(vec!["Bash"])
+            .disallowed_tools(vec!["Edit"])
+            .max_budget_usd(10.0)
+            .include_partial_messages(true)
+            .build()
+            .unwrap();
+
+        let args_with_prompt = config.build_args("test prompt");
+        let stdin_args = build_stdin_args(&config);
+
+        // Remove -p and prompt from args_with_prompt
+        let args_without_prompt: Vec<_> = args_with_prompt
+            .iter()
+            .skip(2) // Skip "-p" and "test prompt"
+            .cloned()
+            .collect();
+
+        assert_eq!(
+            args_without_prompt, stdin_args,
+            "build_args and build_stdin_args have diverged!"
+        );
+    }
 }
