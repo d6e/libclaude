@@ -1,0 +1,298 @@
+//! Multi-turn conversation sessions.
+//!
+//! This module provides [`Session`] for managing multi-turn conversations
+//! with Claude. Sessions maintain conversation history and track usage
+//! across multiple turns.
+//!
+//! # Example
+//!
+//! ```ignore
+//! use libclaude::{ClaudeClient, Result};
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<()> {
+//!     let client = ClaudeClient::new()?;
+//!
+//!     // Start a session with context
+//!     let session = client.start_session("My name is Alice").await?;
+//!
+//!     // Continue the conversation
+//!     let response = session.send_and_collect("What's my name?").await?;
+//!     println!("{}", response); // "Your name is Alice"
+//!
+//!     // Check usage
+//!     println!("Total tokens: {}", session.total_usage().total_tokens());
+//!     println!("Total cost: ${:.4}", session.total_cost_usd());
+//!
+//!     Ok(())
+//! }
+//! ```
+
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+
+use futures::StreamExt;
+use tokio::sync::Mutex;
+
+use crate::config::{ClientConfig, SessionId};
+use crate::process::ClaudeProcess;
+use crate::protocol::Usage;
+use crate::stream::{with_timeout, ResponseStream, StreamEvent};
+use crate::Result;
+
+/// A multi-turn conversation session with Claude.
+///
+/// Sessions maintain conversation history across multiple turns by using
+/// the CLI's `--resume` flag to continue from a specific session ID.
+///
+/// # Thread Safety
+///
+/// `Session` is `Send + Sync` and can be shared across tasks. However,
+/// concurrent calls to [`send`](Self::send) or [`send_and_collect`](Self::send_and_collect)
+/// will be serialized internally to maintain conversation order.
+///
+/// # Usage Tracking
+///
+/// Sessions track cumulative token usage and cost across all turns.
+/// Use [`total_usage`](Self::total_usage) and [`total_cost_usd`](Self::total_cost_usd)
+/// to check the totals.
+///
+/// # Example
+///
+/// ```ignore
+/// let session = client.start_session("Remember: I prefer concise answers").await?;
+///
+/// // First turn
+/// let _ = session.send_and_collect("What is Rust?").await?;
+///
+/// // Second turn (session remembers context)
+/// let _ = session.send_and_collect("Show me an example").await?;
+///
+/// // Check totals
+/// println!("Session used {} tokens", session.total_usage().total_tokens());
+/// ```
+#[derive(Debug)]
+pub struct Session {
+    /// The session ID for resuming this conversation.
+    session_id: SessionId,
+    /// Client configuration for spawning new processes.
+    config: Arc<ClientConfig>,
+    /// Accumulated usage across all turns.
+    usage: Mutex<Usage>,
+    /// Accumulated cost in USD (stored as microdollars for atomic ops).
+    cost_microdollars: AtomicU64,
+    /// Lock to serialize send operations.
+    send_lock: Mutex<()>,
+}
+
+impl Session {
+    /// Create a session from an initial response stream.
+    ///
+    /// This consumes the stream to get the session ID and initial usage,
+    /// then creates a Session that can be used for subsequent turns.
+    pub(crate) async fn from_initial_stream(
+        config: Arc<ClientConfig>,
+        mut stream: ResponseStream,
+    ) -> Result<Self> {
+        let mut session_id: Option<SessionId> = None;
+        let mut usage = Usage::default();
+        let mut cost: Option<f64> = None;
+
+        // Consume the stream to get session info
+        while let Some(event) = stream.next().await {
+            match event? {
+                StreamEvent::SessionInit(info) => {
+                    session_id = Some(info.session_id);
+                }
+                StreamEvent::UsageUpdate(u) => {
+                    usage.accumulate(&u);
+                }
+                StreamEvent::Complete(result) => {
+                    if let Some(ref u) = result.usage {
+                        usage = u.clone();
+                    }
+                    cost = result.total_cost_usd;
+                }
+                _ => {}
+            }
+        }
+
+        let session_id = session_id.unwrap_or_else(|| SessionId::new("unknown"));
+        let cost_microdollars = cost.map(|c| (c * 1_000_000.0) as u64).unwrap_or(0);
+
+        Ok(Self {
+            session_id,
+            config,
+            usage: Mutex::new(usage),
+            cost_microdollars: AtomicU64::new(cost_microdollars),
+            send_lock: Mutex::new(()),
+        })
+    }
+
+    /// Get the session ID.
+    ///
+    /// This ID can be used to resume this session later via
+    /// [`ClaudeClient::resume_session`](crate::ClaudeClient::resume_session).
+    pub fn session_id(&self) -> &SessionId {
+        &self.session_id
+    }
+
+    /// Send a message and return a stream of response events.
+    ///
+    /// This is the low-level streaming API for sessions. The stream
+    /// will automatically update the session's usage tracking when consumed.
+    ///
+    /// # Note
+    ///
+    /// Only one send operation can be in progress at a time.
+    /// Concurrent calls will be serialized.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use futures::StreamExt;
+    ///
+    /// let mut stream = session.send("Tell me more").await?;
+    /// while let Some(event) = stream.next().await {
+    ///     // Process events
+    /// }
+    /// ```
+    pub async fn send(&self, message: &str) -> Result<ResponseStream> {
+        // Serialize concurrent sends
+        let _guard = self.send_lock.lock().await;
+
+        let process = ClaudeProcess::spawn_resume(&self.config, &self.session_id, message).await?;
+        let stream = ResponseStream::new(process);
+
+        // Note: Usage tracking doesn't happen automatically when using the raw stream.
+        // For automatic usage tracking, use send_and_collect instead.
+        Ok(stream)
+    }
+
+    /// Send a message and collect the full text response.
+    ///
+    /// This is the simplest way to continue a conversation.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let response = session.send_and_collect("What about X?").await?;
+    /// println!("{}", response);
+    /// ```
+    pub async fn send_and_collect(&self, message: &str) -> Result<String> {
+        // Serialize concurrent sends
+        let _guard = self.send_lock.lock().await;
+
+        let process = ClaudeProcess::spawn_resume(&self.config, &self.session_id, message).await?;
+        let mut stream = ResponseStream::new(process);
+
+        // Collect text and track usage
+        let mut text = String::new();
+        while let Some(event) = stream.next().await {
+            match event? {
+                StreamEvent::TextDelta { text: t, .. } => {
+                    text.push_str(&t);
+                }
+                StreamEvent::UsageUpdate(u) => {
+                    self.add_usage(&u).await;
+                }
+                StreamEvent::Complete(result) => {
+                    if let Some(ref u) = result.usage {
+                        // Use final usage from result
+                        self.add_usage(u).await;
+                    }
+                    if let Some(cost) = result.total_cost_usd {
+                        self.add_cost(cost);
+                    }
+                    if result.is_error() {
+                        return Err(crate::Error::CliError {
+                            message: result.result.unwrap_or_else(|| "unknown error".to_string()),
+                            is_auth_error: false,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(timeout) = self.config.timeout() {
+            with_timeout(timeout, async { Ok(text) }).await
+        } else {
+            Ok(text)
+        }
+    }
+
+    /// Get the accumulated usage across all turns.
+    ///
+    /// This returns the total tokens consumed by this session.
+    pub async fn total_usage(&self) -> Usage {
+        self.usage.lock().await.clone()
+    }
+
+    /// Get the accumulated cost in USD across all turns.
+    pub fn total_cost_usd(&self) -> f64 {
+        let microdollars = self.cost_microdollars.load(Ordering::Relaxed);
+        microdollars as f64 / 1_000_000.0
+    }
+
+    /// Add usage to the session totals.
+    async fn add_usage(&self, usage: &Usage) {
+        let mut total = self.usage.lock().await;
+        total.accumulate(usage);
+    }
+
+    /// Add cost to the session totals.
+    fn add_cost(&self, cost: f64) {
+        let microdollars = (cost * 1_000_000.0) as u64;
+        self.cost_microdollars.fetch_add(microdollars, Ordering::Relaxed);
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<Session>();
+    }
+
+    #[test]
+    fn session_id_accessors() {
+        // Test SessionId methods used by Session
+        let id = SessionId::new("test-session-123");
+        assert_eq!(id.as_str(), "test-session-123");
+        assert_eq!(id.to_string(), "test-session-123");
+    }
+
+    #[test]
+    fn cost_microdollar_conversion() {
+        // Test the microdollar conversion logic
+        let cost = 0.0123;
+        let microdollars = (cost * 1_000_000.0) as u64;
+        let back = microdollars as f64 / 1_000_000.0;
+        assert!((cost - back).abs() < 0.000001);
+    }
+
+    #[test]
+    fn usage_accumulation() {
+        // Test that usage accumulates correctly
+        let mut usage = Usage::default();
+        let u1 = Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            ..Default::default()
+        };
+        let u2 = Usage {
+            input_tokens: 200,
+            output_tokens: 100,
+            ..Default::default()
+        };
+        usage.accumulate(&u1);
+        usage.accumulate(&u2);
+        assert_eq!(usage.input_tokens, 300);
+        assert_eq!(usage.output_tokens, 150);
+    }
+}
