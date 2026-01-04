@@ -427,85 +427,6 @@ impl ClientConfigBuilder {
 }
 
 impl ClientConfig {
-    /// Build CLI arguments from this configuration.
-    ///
-    /// This is used internally by the process module.
-    pub(crate) fn build_args(&self, prompt: &str) -> Vec<String> {
-        let mut args = vec![
-            "-p".to_string(),
-            prompt.to_string(),
-            "--output-format".to_string(),
-            "json".to_string(),
-        ];
-
-        if let Some(ref model) = self.model {
-            args.push("--model".to_string());
-            args.push(model.to_string());
-        }
-
-        if self.permission_mode != PermissionMode::Default {
-            args.push("--permission-mode".to_string());
-            args.push(self.permission_mode.to_string());
-        }
-
-        if let Some(ref prompt) = self.system_prompt {
-            args.push("--system-prompt".to_string());
-            args.push(prompt.clone());
-        }
-
-        if let Some(ref prompt) = self.append_system_prompt {
-            args.push("--append-system-prompt".to_string());
-            args.push(prompt.clone());
-        }
-
-        if let Some(ref tools) = self.tools {
-            args.push("--tools".to_string());
-            if tools.is_empty() {
-                args.push(String::new()); // Empty string disables all tools
-            } else {
-                args.push(tools.join(","));
-            }
-        }
-
-        if let Some(ref tools) = self.allowed_tools {
-            args.push("--allowedTools".to_string());
-            args.push(tools.join(","));
-        }
-
-        if let Some(ref tools) = self.disallowed_tools {
-            args.push("--disallowedTools".to_string());
-            args.push(tools.join(","));
-        }
-
-        if let Some(budget) = self.max_budget_usd {
-            args.push("--max-budget-usd".to_string());
-            args.push(budget.to_string());
-        }
-
-        if let Some(ref path) = self.mcp_config {
-            args.push("--mcp-config".to_string());
-            args.push(path.display().to_string());
-        }
-
-        if let Some(ref schema) = self.json_schema {
-            args.push("--json-schema".to_string());
-            args.push(schema.to_string());
-        }
-
-        if let Some(ref id) = self.session_id {
-            args.push("--resume".to_string());
-            args.push(id.to_string());
-        } else if self.continue_session {
-            args.push("--continue".to_string());
-        }
-
-        if self.include_partial_messages {
-            args.push("--include-partial-messages".to_string());
-        }
-
-        args
-    }
-
     /// Get the environment variables to set for the subprocess.
     pub(crate) fn build_env(&self) -> HashMap<String, String> {
         let mut env = self.env_vars.clone();
@@ -586,69 +507,6 @@ mod tests {
     }
 
     #[test]
-    fn build_args_basic() {
-        let config = ClientConfigBuilder::default()
-            .api_key("key")
-            .build()
-            .unwrap();
-
-        let args = config.build_args("hello");
-        assert!(args.contains(&"-p".to_string()));
-        assert!(args.contains(&"hello".to_string()));
-        assert!(args.contains(&"--output-format".to_string()));
-        assert!(args.contains(&"json".to_string()));
-    }
-
-    #[test]
-    fn build_args_full() {
-        let config = ClientConfigBuilder::default()
-            .api_key("key")
-            .model(Model::Opus)
-            .permission_mode(PermissionMode::AcceptEdits)
-            .system_prompt("Be helpful")
-            .max_budget_usd(5.0)
-            .include_partial_messages(true)
-            .build()
-            .unwrap();
-
-        let args = config.build_args("test prompt");
-        assert!(args.contains(&"--model".to_string()));
-        assert!(args.contains(&"opus".to_string()));
-        assert!(args.contains(&"--permission-mode".to_string()));
-        assert!(args.contains(&"acceptEdits".to_string()));
-        assert!(args.contains(&"--system-prompt".to_string()));
-        assert!(args.contains(&"Be helpful".to_string()));
-        assert!(args.contains(&"--max-budget-usd".to_string()));
-        assert!(args.contains(&"5".to_string()));
-        assert!(args.contains(&"--include-partial-messages".to_string()));
-    }
-
-    #[test]
-    fn build_args_session() {
-        let config = ClientConfigBuilder::default()
-            .api_key("key")
-            .session_id("session-123")
-            .build()
-            .unwrap();
-
-        let args = config.build_args("prompt");
-        assert!(args.contains(&"--resume".to_string()));
-        assert!(args.contains(&"session-123".to_string()));
-    }
-
-    #[test]
-    fn build_args_continue() {
-        let config = ClientConfigBuilder::default()
-            .api_key("key")
-            .continue_session(true)
-            .build()
-            .unwrap();
-
-        let args = config.build_args("prompt");
-        assert!(args.contains(&"--continue".to_string()));
-    }
-
-    #[test]
     fn build_env() {
         let config = ClientConfigBuilder::default()
             .api_key("secret-key")
@@ -690,9 +548,10 @@ mod tests {
             .build()
             .unwrap();
 
-        let args = config.build_args("test");
-        assert!(args.contains(&"--allowedTools".to_string()));
-        assert!(args.contains(&"Read,Glob".to_string()));
+        assert_eq!(
+            config.allowed_tools,
+            Some(vec!["Read".to_string(), "Glob".to_string()])
+        );
     }
 
     #[test]
@@ -703,9 +562,10 @@ mod tests {
             .build()
             .unwrap();
 
-        let args = config.build_args("test");
-        assert!(args.contains(&"--tools".to_string()));
-        assert!(args.contains(&"Bash,Read".to_string()));
+        assert_eq!(
+            config.tools,
+            Some(vec!["Bash".to_string(), "Read".to_string()])
+        );
     }
 
     #[test]
@@ -716,9 +576,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let args = config.build_args("test");
-        assert!(args.contains(&"--tools".to_string()));
-        assert!(args.contains(&String::new())); // Empty string
+        assert_eq!(config.tools, Some(vec![]));
     }
 
     #[test]

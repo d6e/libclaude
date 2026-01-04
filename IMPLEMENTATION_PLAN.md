@@ -281,21 +281,20 @@ impl ClientConfigBuilder {
 **Files**:
 - `src/process/mod.rs` - Module exports
 - `src/process/spawn.rs` - ClaudeProcess struct with spawn(), spawn_continue(), spawn_resume()
-- `src/process/io.rs` - ProcessReader (line-by-line JSON), ProcessWriter (stdin for long prompts)
+- `src/process/io.rs` - ProcessReader (line-by-line JSON), ProcessWriter (stdin for prompts)
 
 **Process model**:
 Each API call spawns a new CLI process. Multi-turn sessions use `--continue` or `--resume` flags to load conversation history from CLI's session storage.
 
 ```
-Turn 1: claude -p "prompt1" --output-format json
-Turn 2: claude -p "prompt2" --output-format json --continue
-Turn 3: claude -p "prompt3" --output-format json --resume <session_id>
+Turn 1: claude --output-format json              (prompt via stdin)
+Turn 2: claude --output-format json --continue   (prompt via stdin)
+Turn 3: claude --output-format json --resume ID  (prompt via stdin)
 ```
 
 **Input protocol**:
-- Prompts passed via `-p "prompt"` argument (primary method)
-- For prompts exceeding OS argument length limits (~128KB), fall back to stdin pipe
-- Stdin fallback: write prompt bytes, close stdin, read JSON from stdout
+- Spawn CLI with `stdin(Stdio::piped())`, write prompt bytes, close stdin
+- Simpler than `-p` argument: one code path, no size limits, prompts hidden from `ps`
 
 **Session continuation**:
 - `--continue`: Resume most recent session (no ID needed)
@@ -303,10 +302,9 @@ Turn 3: claude -p "prompt3" --output-format json --resume <session_id>
 - Session history managed by CLI, not the library
 
 **Key functionality**:
-- Build CLI args from ClientConfig
-- Handle stdin/stdout/stderr pipes
+- Build CLI args from ClientConfig (flags only, no prompt)
+- Pipe prompt via stdin, read JSON from stdout
 - Parse JSON lines from stdout (newline-delimited)
-- Detect long prompts and use stdin fallback
 
 **CLI version check**:
 ```rust

@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::process::{Child, Command};
 
 use super::io::{CliMessageStream, ProcessReader, ProcessWriter, StderrReader};
-use super::{MAX_ARG_PROMPT_LEN, MIN_CLI_VERSION};
+use super::MIN_CLI_VERSION;
 use crate::config::{ClientConfig, SessionId};
 use crate::{Error, Result};
 
@@ -31,21 +31,12 @@ pub struct ClaudeProcess {
 impl ClaudeProcess {
     /// Spawn a new Claude CLI process with the given prompt.
     ///
-    /// This is the primary way to invoke Claude. The prompt is passed either
-    /// via command line argument (for short prompts) or stdin (for long prompts).
+    /// The prompt is written to the subprocess stdin.
     pub async fn spawn(config: &ClientConfig, prompt: &str) -> Result<Self> {
         check_version_once(config).await;
 
-        let use_stdin = prompt.len() > MAX_ARG_PROMPT_LEN;
-        let mut cmd = build_command(config, if use_stdin { None } else { Some(prompt) })?;
-
-        // Configure stdin based on prompt length
-        if use_stdin {
-            cmd.stdin(Stdio::piped());
-        } else {
-            cmd.stdin(Stdio::null());
-        }
-
+        let mut cmd = build_command(config)?;
+        cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
@@ -59,12 +50,10 @@ impl ClaudeProcess {
             }
         })?;
 
-        // Write prompt via stdin if needed
-        if use_stdin {
-            let stdin = child.stdin.take().expect("stdin was configured");
-            let writer = ProcessWriter::new(stdin);
-            writer.write_prompt(prompt).await?;
-        }
+        // Write prompt via stdin
+        let stdin = child.stdin.take().expect("stdin was configured");
+        let writer = ProcessWriter::new(stdin);
+        writer.write_prompt(prompt).await?;
 
         let stdout = child.stdout.take().expect("stdout was configured");
         let stderr = child.stderr.take().expect("stderr was configured");
@@ -159,7 +148,7 @@ impl Drop for ClaudeProcess {
 }
 
 /// Build a tokio Command from the config.
-fn build_command(config: &ClientConfig, prompt: Option<&str>) -> Result<Command> {
+fn build_command(config: &ClientConfig) -> Result<Command> {
     let mut cmd = Command::new(config.cli_command());
 
     // Set working directory if specified
@@ -177,21 +166,15 @@ fn build_command(config: &ClientConfig, prompt: Option<&str>) -> Result<Command>
         cmd.env(key, value);
     }
 
-    // Build arguments
-    let args = if let Some(p) = prompt {
-        config.build_args(p)
-    } else {
-        // For stdin input, we omit the -p argument
-        build_stdin_args(config)
-    };
-
+    // Build arguments (prompt goes via stdin)
+    let args = build_args(config);
     cmd.args(&args);
 
     Ok(cmd)
 }
 
-/// Build arguments for stdin input mode (no -p flag).
-fn build_stdin_args(config: &ClientConfig) -> Vec<String> {
+/// Build CLI arguments (prompt is sent via stdin, not as argument).
+fn build_args(config: &ClientConfig) -> Vec<String> {
     let mut args = vec!["--output-format".to_string(), "json".to_string()];
 
     if let Some(ref model) = config.model {
@@ -317,17 +300,24 @@ async fn check_cli_version(config: &ClientConfig) -> Result<()> {
 
 /// Parse a version string like "claude 2.0.76" into (major, minor, patch).
 fn parse_version(s: &str) -> Option<(u32, u32, u32)> {
-    // Look for a version pattern like "2.0.76"
-    // Find the first digit sequence that looks like a version
+    // Find the first word that looks like a version
     for word in s.split_whitespace() {
-        // Try to parse as version (strip leading 'v' if present)
         let word = word.strip_prefix('v').unwrap_or(word);
         let parts: Vec<&str> = word.split('.').collect();
         if parts.len() >= 3 {
             // Take just the numeric prefix of each part (handles "3-beta" -> "3")
-            let major = parts[0].chars().take_while(|c| c.is_ascii_digit()).collect::<String>();
-            let minor = parts[1].chars().take_while(|c| c.is_ascii_digit()).collect::<String>();
-            let patch = parts[2].chars().take_while(|c| c.is_ascii_digit()).collect::<String>();
+            let major = parts[0]
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<String>();
+            let minor = parts[1]
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<String>();
+            let patch = parts[2]
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<String>();
 
             if let (Ok(maj), Ok(min), Ok(pat)) = (
                 major.parse::<u32>(),
@@ -385,29 +375,21 @@ mod tests {
     }
 
     #[test]
-    fn max_arg_prompt_len_reasonable() {
-        // Should be large enough for typical prompts
-        assert!(MAX_ARG_PROMPT_LEN >= 1024);
-        // Should be small enough to not hit OS limits
-        assert!(MAX_ARG_PROMPT_LEN <= 128 * 1024);
-    }
-
-    #[test]
-    fn stdin_args_basic() {
+    fn build_args_basic() {
         let config = crate::config::ClientConfig::builder()
             .api_key("test")
             .build()
             .unwrap();
 
-        let args = build_stdin_args(&config);
+        let args = build_args(&config);
         assert!(args.contains(&"--output-format".to_string()));
         assert!(args.contains(&"json".to_string()));
-        // Should NOT contain -p
+        // Should NOT contain -p (prompt goes via stdin)
         assert!(!args.contains(&"-p".to_string()));
     }
 
     #[test]
-    fn stdin_args_with_options() {
+    fn build_args_with_options() {
         let config = crate::config::ClientConfig::builder()
             .api_key("test")
             .model(crate::config::Model::Opus)
@@ -415,7 +397,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let args = build_stdin_args(&config);
+        let args = build_args(&config);
         assert!(args.contains(&"--model".to_string()));
         assert!(args.contains(&"opus".to_string()));
         assert!(args.contains(&"--continue".to_string()));
@@ -425,40 +407,5 @@ mod tests {
     fn process_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<ClaudeProcess>();
-    }
-
-    /// Ensures build_stdin_args stays in sync with build_args.
-    /// These functions are intentionally duplicated for clarity, but must produce
-    /// identical flags (except -p). This test catches divergence.
-    #[test]
-    fn build_args_and_stdin_args_parity() {
-        let config = crate::config::ClientConfig::builder()
-            .api_key("test")
-            .model(crate::config::Model::Opus)
-            .permission_mode(crate::config::PermissionMode::AcceptEdits)
-            .system_prompt("Be helpful")
-            .append_system_prompt("Extra instructions")
-            .tools(vec!["Read", "Write"])
-            .allowed_tools(vec!["Bash"])
-            .disallowed_tools(vec!["Edit"])
-            .max_budget_usd(10.0)
-            .include_partial_messages(true)
-            .build()
-            .unwrap();
-
-        let args_with_prompt = config.build_args("test prompt");
-        let stdin_args = build_stdin_args(&config);
-
-        // Remove -p and prompt from args_with_prompt
-        let args_without_prompt: Vec<_> = args_with_prompt
-            .iter()
-            .skip(2) // Skip "-p" and "test prompt"
-            .cloned()
-            .collect();
-
-        assert_eq!(
-            args_without_prompt, stdin_args,
-            "build_args and build_stdin_args have diverged!"
-        );
     }
 }
