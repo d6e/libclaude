@@ -20,6 +20,7 @@ use crate::protocol::{
     AssistantMessage, CliMessage, ContentBlock, ContentBlockInfo, ContentDelta, ResultMessage,
     StreamEventType, SystemMessage, TextBlock, ThinkingBlock, ToolUseBlock, Usage,
 };
+use crate::tools::ToolObserver;
 use crate::{Error, Result};
 
 /// Shared state for cancellation detection.
@@ -68,7 +69,17 @@ impl ResponseStream {
     ///
     /// This spawns a background task to read from the process and
     /// transform messages into stream events.
-    pub fn new(mut process: ClaudeProcess) -> Self {
+    pub fn new(process: ClaudeProcess) -> Self {
+        Self::with_observer(process, None)
+    }
+
+    /// Create a new response stream with an optional tool observer.
+    ///
+    /// The observer will be called for tool use and tool result events.
+    pub fn with_observer(
+        mut process: ClaudeProcess,
+        observer: Option<Arc<dyn ToolObserver>>,
+    ) -> Self {
         let (tx, rx) = mpsc::channel(64);
 
         let reader = process
@@ -80,7 +91,7 @@ impl ResponseStream {
 
         // Spawn background reader task
         let task_handle = tokio::spawn(async move {
-            let result = Self::read_loop(reader, tx.clone()).await;
+            let result = Self::read_loop(reader, tx.clone(), observer).await;
             if let Err(e) = result {
                 // Try to send the error, ignore if receiver is gone
                 let _ = tx.send(Err(e)).await;
@@ -103,6 +114,7 @@ impl ResponseStream {
     async fn read_loop(
         mut reader: crate::process::ProcessReader,
         tx: mpsc::Sender<Result<StreamEvent>>,
+        observer: Option<Arc<dyn ToolObserver>>,
     ) -> Result<()> {
         // Track content blocks being built
         let mut content_blocks: HashMap<usize, ContentBlockBuilder> = HashMap::new();
@@ -120,6 +132,12 @@ impl ResponseStream {
                 }
                 Some(msg) => {
                     let events = Self::transform_message(msg, &mut content_blocks)?;
+                    for event in &events {
+                        // Dispatch to observer if present
+                        if let Some(ref obs) = observer {
+                            Self::dispatch_to_observer(obs.as_ref(), event);
+                        }
+                    }
                     for event in events {
                         if tx.send(Ok(event)).await.is_err() {
                             // Receiver dropped
@@ -128,6 +146,27 @@ impl ResponseStream {
                     }
                 }
             }
+        }
+    }
+
+    /// Dispatch events to the tool observer.
+    fn dispatch_to_observer(observer: &dyn ToolObserver, event: &StreamEvent) {
+        match event {
+            StreamEvent::ContentBlockComplete { block, .. } => {
+                if let ContentBlock::ToolUse(tool_use) = block {
+                    observer.on_tool_use(&tool_use.id, &tool_use.name, &tool_use.input);
+                }
+            }
+            StreamEvent::ToolResult(user_msg) => {
+                for result in user_msg.message.tool_results() {
+                    observer.on_tool_result(
+                        &result.tool_use_id,
+                        &result.content.as_text(),
+                        result.is_error,
+                    );
+                }
+            }
+            _ => {}
         }
     }
 

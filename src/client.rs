@@ -150,7 +150,8 @@ impl ClaudeClient {
     /// ```
     pub async fn send(&self, prompt: &str) -> Result<ResponseStream> {
         let process = ClaudeProcess::spawn(&self.config, prompt).await?;
-        let stream = ResponseStream::new(process);
+        let observer = self.config.tool_observer().cloned();
+        let stream = ResponseStream::with_observer(process, observer);
 
         Ok(stream)
     }
@@ -190,7 +191,8 @@ impl ClaudeClient {
     /// ```
     pub async fn start_session(&self, prompt: &str) -> Result<Session> {
         let process = ClaudeProcess::spawn(&self.config, prompt).await?;
-        let stream = ResponseStream::new(process);
+        let observer = self.config.tool_observer().cloned();
+        let stream = ResponseStream::with_observer(process, observer);
 
         Session::from_initial_stream(Arc::clone(&self.config), stream).await
     }
@@ -214,7 +216,8 @@ impl ClaudeClient {
     /// ```
     pub async fn continue_session(&self, prompt: &str) -> Result<Session> {
         let process = ClaudeProcess::spawn_continue(&self.config, prompt).await?;
-        let stream = ResponseStream::new(process);
+        let observer = self.config.tool_observer().cloned();
+        let stream = ResponseStream::with_observer(process, observer);
 
         Session::from_initial_stream(Arc::clone(&self.config), stream).await
     }
@@ -238,7 +241,8 @@ impl ClaudeClient {
     /// ```
     pub async fn resume_session(&self, session_id: &SessionId, prompt: &str) -> Result<Session> {
         let process = ClaudeProcess::spawn_resume(&self.config, session_id, prompt).await?;
-        let stream = ResponseStream::new(process);
+        let observer = self.config.tool_observer().cloned();
+        let stream = ResponseStream::with_observer(process, observer);
 
         Session::from_initial_stream(Arc::clone(&self.config), stream).await
     }
@@ -455,6 +459,22 @@ impl ClientBuilder {
     /// Don't inherit parent environment.
     pub fn inherit_env(mut self, inherit: bool) -> Self {
         self.inner = self.inner.inherit_env(inherit);
+        self
+    }
+
+    // -------------------------------------------------------------------------
+    // Tool observer
+    // -------------------------------------------------------------------------
+
+    /// Set a tool observer for monitoring tool execution.
+    ///
+    /// The observer will be called when Claude invokes tools and when
+    /// tool results are received. This is for observation only.
+    pub fn tool_observer(
+        mut self,
+        observer: std::sync::Arc<dyn crate::tools::ToolObserver>,
+    ) -> Self {
+        self.inner = self.inner.tool_observer(observer);
         self
     }
 }

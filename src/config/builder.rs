@@ -17,18 +17,20 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
 
 use super::auth::{resolve_auth, AuthMethod, ResolvedAuth};
 use super::options::{Model, PermissionMode, SessionId};
+use crate::tools::ToolObserver;
 use crate::{Error, Result};
 
 /// Configuration for the Claude CLI client.
 ///
 /// Use [`ClientConfig::builder()`] to create a new configuration.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ClientConfig {
     // Authentication
     pub(crate) resolved_auth: ResolvedAuth,
@@ -64,6 +66,36 @@ pub struct ClientConfig {
     pub(crate) timeout: Option<Duration>,
     pub(crate) env_vars: HashMap<String, String>,
     pub(crate) inherit_env: bool,
+
+    // Tool observer
+    pub(crate) tool_observer: Option<Arc<dyn ToolObserver>>,
+}
+
+impl std::fmt::Debug for ClientConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClientConfig")
+            .field("resolved_auth", &self.resolved_auth)
+            .field("model", &self.model)
+            .field("permission_mode", &self.permission_mode)
+            .field("system_prompt", &self.system_prompt)
+            .field("append_system_prompt", &self.append_system_prompt)
+            .field("tools", &self.tools)
+            .field("allowed_tools", &self.allowed_tools)
+            .field("disallowed_tools", &self.disallowed_tools)
+            .field("max_budget_usd", &self.max_budget_usd)
+            .field("mcp_config", &self.mcp_config)
+            .field("json_schema", &self.json_schema)
+            .field("session_id", &self.session_id)
+            .field("continue_session", &self.continue_session)
+            .field("include_partial_messages", &self.include_partial_messages)
+            .field("cli_path", &self.cli_path)
+            .field("working_directory", &self.working_directory)
+            .field("timeout", &self.timeout)
+            .field("env_vars", &self.env_vars)
+            .field("inherit_env", &self.inherit_env)
+            .field("tool_observer", &self.tool_observer.as_ref().map(|_| "<observer>"))
+            .finish()
+    }
 }
 
 impl ClientConfig {
@@ -91,13 +123,18 @@ impl ClientConfig {
     pub fn working_directory(&self) -> Option<&PathBuf> {
         self.working_directory.as_ref()
     }
+
+    /// Get the tool observer if set.
+    pub fn tool_observer(&self) -> Option<&Arc<dyn ToolObserver>> {
+        self.tool_observer.as_ref()
+    }
 }
 
 /// Builder for [`ClientConfig`].
 ///
 /// This builder validates the configuration when [`build()`](ClientConfigBuilder::build) is called,
 /// ensuring that authentication is properly configured and the CLI can be found.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ClientConfigBuilder {
     // Authentication
     auth_method: AuthMethod,
@@ -134,6 +171,37 @@ pub struct ClientConfigBuilder {
     timeout: Option<Duration>,
     env_vars: HashMap<String, String>,
     inherit_env: bool,
+
+    // Tool observer
+    tool_observer: Option<Arc<dyn ToolObserver>>,
+}
+
+impl std::fmt::Debug for ClientConfigBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClientConfigBuilder")
+            .field("auth_method", &self.auth_method)
+            .field("fallbacks", &self.fallbacks)
+            .field("model", &self.model)
+            .field("permission_mode", &self.permission_mode)
+            .field("system_prompt", &self.system_prompt)
+            .field("append_system_prompt", &self.append_system_prompt)
+            .field("tools", &self.tools)
+            .field("allowed_tools", &self.allowed_tools)
+            .field("disallowed_tools", &self.disallowed_tools)
+            .field("max_budget_usd", &self.max_budget_usd)
+            .field("mcp_config", &self.mcp_config)
+            .field("json_schema", &self.json_schema)
+            .field("session_id", &self.session_id)
+            .field("continue_session", &self.continue_session)
+            .field("include_partial_messages", &self.include_partial_messages)
+            .field("cli_path", &self.cli_path)
+            .field("working_directory", &self.working_directory)
+            .field("timeout", &self.timeout)
+            .field("env_vars", &self.env_vars)
+            .field("inherit_env", &self.inherit_env)
+            .field("tool_observer", &self.tool_observer.as_ref().map(|_| "<observer>"))
+            .finish()
+    }
 }
 
 impl Default for ClientConfigBuilder {
@@ -159,6 +227,7 @@ impl Default for ClientConfigBuilder {
             timeout: None,
             env_vars: HashMap::new(),
             inherit_env: true, // Default: inherit parent environment
+            tool_observer: None,
         }
     }
 }
@@ -369,6 +438,31 @@ impl ClientConfigBuilder {
     }
 
     // -------------------------------------------------------------------------
+    // Tool observer
+    // -------------------------------------------------------------------------
+
+    /// Set a tool observer for monitoring tool execution.
+    ///
+    /// The observer will be called when Claude invokes tools and when
+    /// tool results are received. This is for observation only.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use std::sync::Arc;
+    /// use libclaude::{ClaudeClient, LoggingObserver};
+    ///
+    /// let client = ClaudeClient::builder()
+    ///     .api_key("sk-ant-...")
+    ///     .tool_observer(Arc::new(LoggingObserver::new()))
+    ///     .build()?;
+    /// ```
+    pub fn tool_observer(mut self, observer: Arc<dyn ToolObserver>) -> Self {
+        self.tool_observer = Some(observer);
+        self
+    }
+
+    // -------------------------------------------------------------------------
     // Build
     // -------------------------------------------------------------------------
 
@@ -422,6 +516,7 @@ impl ClientConfigBuilder {
             timeout: self.timeout,
             env_vars: self.env_vars,
             inherit_env: self.inherit_env,
+            tool_observer: self.tool_observer,
         })
     }
 }

@@ -57,35 +57,99 @@
 //!     .max_budget_usd(5.00)
 //!     .build()?;
 //! ```
+//!
+//! ## Tool Observation
+//!
+//! ```ignore
+//! use std::sync::Arc;
+//! use libclaude::{ClaudeClient, ToolObserver};
+//! use serde_json::Value;
+//!
+//! struct MyObserver;
+//!
+//! impl ToolObserver for MyObserver {
+//!     fn on_tool_use(&self, id: &str, name: &str, input: &Value) {
+//!         println!("Tool called: {}", name);
+//!     }
+//! }
+//!
+//! let client = ClaudeClient::builder()
+//!     .tool_observer(Arc::new(MyObserver))
+//!     .build()?;
+//! ```
 
 mod client;
-pub mod config;
 mod error;
+mod session;
+
+// Public modules for advanced usage
+pub mod config;
 pub mod process;
 pub mod protocol;
-mod session;
 pub mod stream;
+pub mod tools;
+
+// ============================================================================
+// Core types
+// ============================================================================
 
 pub use error::{Error, Result};
-
-// Re-export the main client types at crate root
 pub use client::{ClaudeClient, ClientBuilder};
 pub use session::Session;
 
-// Re-export commonly used config types at crate root
+// ============================================================================
+// Configuration
+// ============================================================================
+
 pub use config::{
-    has_oauth_credentials, login_interactive, setup_token, AuthMethod, ClientConfig,
-    ClientConfigBuilder, Model, OAuthCredentials, PermissionMode, SessionId,
+    // Authentication
+    AuthMethod, OAuthCredentials,
+    has_oauth_credentials, login_interactive, setup_token,
+    // Builder
+    ClientConfig, ClientConfigBuilder,
+    // Options
+    Model, PermissionMode, SessionId,
 };
 
-// Re-export commonly used protocol types at crate root
-pub use protocol::{CliMessage, ContentBlock, StreamEventType, Usage};
+// Tool name constants are available at libclaude::config::tools::{READ, BASH, ...}
 
-// Re-export commonly used process types at crate root
-pub use process::{ClaudeProcess, ProcessReader};
+// ============================================================================
+// Protocol types
+// ============================================================================
 
-// Re-export commonly used stream types at crate root
-pub use stream::{CollectedResponse, ResponseStream, SessionInfo, StreamEvent};
+pub use protocol::{
+    // Top-level message enum
+    CliMessage,
+    // Message types
+    AssistantMessage, ResultMessage, SystemMessage, UserMessage,
+    // Content blocks
+    ContentBlock, TextBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock,
+    // Streaming events
+    StreamEventType,
+    // Usage tracking
+    Usage,
+};
+
+// ============================================================================
+// Streaming
+// ============================================================================
+
+pub use stream::{
+    CollectedResponse, ResponseStream, SessionInfo, StreamEvent,
+    with_timeout,
+};
+
+// ============================================================================
+// Process management
+// ============================================================================
+
+pub use process::{ClaudeProcess, ProcessReader, MIN_CLI_VERSION};
+
+// ============================================================================
+// Tool observation
+// ============================================================================
+
+pub use tools::{LogLevel, LoggingObserver, ToolObserver};
 
 #[cfg(test)]
 mod tests {
@@ -127,6 +191,9 @@ mod tests {
 
         // Error type
         assert_send_sync::<Error>();
+
+        // Tools types
+        assert_send_sync::<LoggingObserver>();
     }
 
     /// ResponseStream is Send but not Sync (contains mutable state).

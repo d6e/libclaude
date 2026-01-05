@@ -162,7 +162,8 @@ impl Session {
         let _guard = self.send_lock.lock().await;
 
         let process = ClaudeProcess::spawn_resume(&self.config, &self.session_id, message).await?;
-        let stream = ResponseStream::new(process);
+        let observer = self.config.tool_observer().cloned();
+        let stream = ResponseStream::with_observer(process, observer);
 
         // Note: Usage tracking doesn't happen automatically when using the raw stream.
         // For automatic usage tracking, use send_and_collect instead.
@@ -184,7 +185,8 @@ impl Session {
         let _guard = self.send_lock.lock().await;
 
         let process = ClaudeProcess::spawn_resume(&self.config, &self.session_id, message).await?;
-        let stream = ResponseStream::new(process);
+        let observer = self.config.tool_observer().cloned();
+        let stream = ResponseStream::with_observer(process, observer);
 
         // Process stream with optional timeout
         let (text, turn_usage, turn_cost) = if let Some(timeout) = self.config.timeout() {
