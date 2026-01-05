@@ -184,26 +184,44 @@ impl Session {
         let _guard = self.send_lock.lock().await;
 
         let process = ClaudeProcess::spawn_resume(&self.config, &self.session_id, message).await?;
-        let mut stream = ResponseStream::new(process);
+        let stream = ResponseStream::new(process);
 
-        // Collect text and track usage
+        // Process stream with optional timeout
+        let (text, turn_usage, turn_cost) = if let Some(timeout) = self.config.timeout() {
+            with_timeout(timeout, Self::collect_stream(stream)).await?
+        } else {
+            Self::collect_stream(stream).await?
+        };
+
+        // Add this turn's usage to session totals
+        if let Some(usage) = turn_usage {
+            self.set_turn_usage(&usage).await;
+        }
+        if let Some(cost) = turn_cost {
+            self.add_cost(cost);
+        }
+
+        Ok(text)
+    }
+
+    /// Collect text from a stream, returning text, final usage, and cost.
+    async fn collect_stream(
+        mut stream: ResponseStream,
+    ) -> Result<(String, Option<Usage>, Option<f64>)> {
         let mut text = String::new();
+        let mut final_usage: Option<Usage> = None;
+        let mut final_cost: Option<f64> = None;
+
         while let Some(event) = stream.next().await {
             match event? {
                 StreamEvent::TextDelta { text: t, .. } => {
                     text.push_str(&t);
                 }
-                StreamEvent::UsageUpdate(u) => {
-                    self.add_usage(&u).await;
-                }
                 StreamEvent::Complete(result) => {
-                    if let Some(ref u) = result.usage {
-                        // Use final usage from result
-                        self.add_usage(u).await;
-                    }
-                    if let Some(cost) = result.total_cost_usd {
-                        self.add_cost(cost);
-                    }
+                    // Use the final cumulative usage from result (not incremental deltas)
+                    final_usage = result.usage.clone();
+                    final_cost = result.total_cost_usd;
+
                     if result.is_error() {
                         return Err(crate::Error::CliError {
                             message: result.result.unwrap_or_else(|| "unknown error".to_string()),
@@ -215,11 +233,7 @@ impl Session {
             }
         }
 
-        if let Some(timeout) = self.config.timeout() {
-            with_timeout(timeout, async { Ok(text) }).await
-        } else {
-            Ok(text)
-        }
+        Ok((text, final_usage, final_cost))
     }
 
     /// Get the accumulated usage across all turns.
@@ -235,8 +249,8 @@ impl Session {
         microdollars as f64 / 1_000_000.0
     }
 
-    /// Add usage to the session totals.
-    async fn add_usage(&self, usage: &Usage) {
+    /// Add a turn's usage to the session totals.
+    async fn set_turn_usage(&self, usage: &Usage) {
         let mut total = self.usage.lock().await;
         total.accumulate(usage);
     }
