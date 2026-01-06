@@ -225,10 +225,7 @@ impl ResponseStream {
                                 });
                             }
                             ContentDelta::ThinkingDelta { thinking } => {
-                                events.push(StreamEvent::ThinkingDelta {
-                                    index,
-                                    thinking,
-                                });
+                                events.push(StreamEvent::ThinkingDelta { index, thinking });
                             }
                         }
                     }
@@ -764,7 +761,9 @@ mod tests {
             },
             session_id: None,
         };
-        let _ = ResponseStream::transform_message(CliMessage::StreamEvent(start_event), &mut blocks).unwrap();
+        let _ =
+            ResponseStream::transform_message(CliMessage::StreamEvent(start_event), &mut blocks)
+                .unwrap();
         assert!(blocks.contains_key(&0));
 
         // Add delta
@@ -777,14 +776,18 @@ mod tests {
             },
             session_id: None,
         };
-        let _ = ResponseStream::transform_message(CliMessage::StreamEvent(delta_event), &mut blocks).unwrap();
+        let _ =
+            ResponseStream::transform_message(CliMessage::StreamEvent(delta_event), &mut blocks)
+                .unwrap();
 
         // Stop the block
         let stop_event = StreamEventMessage {
             event: StreamEventType::ContentBlockStop { index: 0 },
             session_id: None,
         };
-        let events = ResponseStream::transform_message(CliMessage::StreamEvent(stop_event), &mut blocks).unwrap();
+        let events =
+            ResponseStream::transform_message(CliMessage::StreamEvent(stop_event), &mut blocks)
+                .unwrap();
 
         assert!(!blocks.contains_key(&0));
         assert_eq!(events.len(), 1);
@@ -846,7 +849,11 @@ mod tests {
         let mut blocks = HashMap::new();
         let result = ResponseStream::transform_message(msg, &mut blocks);
         assert!(result.is_err());
-        if let Err(Error::CliError { message, is_auth_error }) = result {
+        if let Err(Error::CliError {
+            message,
+            is_auth_error,
+        }) = result
+        {
             assert_eq!(message, "Invalid API key");
             assert!(is_auth_error);
         }

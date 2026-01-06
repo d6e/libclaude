@@ -93,8 +93,8 @@ pub mod tools;
 // Core types
 // ============================================================================
 
-pub use error::{Error, Result};
 pub use client::{ClaudeClient, ClientBuilder};
+pub use error::{Error, Result};
 pub use session::Session;
 
 // ============================================================================
@@ -102,13 +102,19 @@ pub use session::Session;
 // ============================================================================
 
 pub use config::{
+    has_oauth_credentials,
+    login_interactive,
+    setup_token,
     // Authentication
-    AuthMethod, OAuthCredentials,
-    has_oauth_credentials, login_interactive, setup_token,
+    AuthMethod,
     // Builder
-    ClientConfig, ClientConfigBuilder,
+    ClientConfig,
+    ClientConfigBuilder,
     // Options
-    Model, PermissionMode, SessionId,
+    Model,
+    OAuthCredentials,
+    PermissionMode,
+    SessionId,
 };
 
 // Tool name constants are available at libclaude::config::tools::{READ, BASH, ...}
@@ -118,26 +124,30 @@ pub use config::{
 // ============================================================================
 
 pub use protocol::{
+    // Message types
+    AssistantMessage,
     // Top-level message enum
     CliMessage,
-    // Message types
-    AssistantMessage, ResultMessage, SystemMessage, UserMessage,
     // Content blocks
-    ContentBlock, TextBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock,
+    ContentBlock,
+    ResultMessage,
     // Streaming events
     StreamEventType,
+    SystemMessage,
+    TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolUseBlock,
     // Usage tracking
     Usage,
+    UserMessage,
 };
 
 // ============================================================================
 // Streaming
 // ============================================================================
 
-pub use stream::{
-    CollectedResponse, ResponseStream, SessionInfo, StreamEvent,
-    with_timeout,
-};
+pub use stream::{with_timeout, CollectedResponse, ResponseStream, SessionInfo, StreamEvent};
 
 // ============================================================================
 // Process management

@@ -93,7 +93,10 @@ impl std::fmt::Debug for ClientConfig {
             .field("timeout", &self.timeout)
             .field("env_vars", &self.env_vars)
             .field("inherit_env", &self.inherit_env)
-            .field("tool_observer", &self.tool_observer.as_ref().map(|_| "<observer>"))
+            .field(
+                "tool_observer",
+                &self.tool_observer.as_ref().map(|_| "<observer>"),
+            )
             .finish()
     }
 }
@@ -199,7 +202,10 @@ impl std::fmt::Debug for ClientConfigBuilder {
             .field("timeout", &self.timeout)
             .field("env_vars", &self.env_vars)
             .field("inherit_env", &self.inherit_env)
-            .field("tool_observer", &self.tool_observer.as_ref().map(|_| "<observer>"))
+            .field(
+                "tool_observer",
+                &self.tool_observer.as_ref().map(|_| "<observer>"),
+            )
             .finish()
     }
 }
@@ -610,7 +616,10 @@ mod tests {
             .unwrap();
 
         let env = config.build_env();
-        assert_eq!(env.get("ANTHROPIC_API_KEY"), Some(&"secret-key".to_string()));
+        assert_eq!(
+            env.get("ANTHROPIC_API_KEY"),
+            Some(&"secret-key".to_string())
+        );
         assert_eq!(env.get("CUSTOM_VAR"), Some(&"custom_value".to_string()));
     }
 
@@ -704,7 +713,10 @@ mod tests {
             .build()
             .unwrap();
 
-        assert!(config.inherit_env, "inherit_env should default to true per plan");
+        assert!(
+            config.inherit_env,
+            "inherit_env should default to true per plan"
+        );
     }
 
     #[test]

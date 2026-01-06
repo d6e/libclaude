@@ -80,12 +80,11 @@ impl OAuthCredentials {
             ))
         })?;
 
-        let file: CredentialsFile = serde_json::from_str(&contents).map_err(|e| {
-            Error::JsonParse {
+        let file: CredentialsFile =
+            serde_json::from_str(&contents).map_err(|e| Error::JsonParse {
                 message: format!("invalid credentials file format: {}", e),
                 source: e,
-            }
-        })?;
+            })?;
 
         Ok(file.claude_ai_oauth.map(|oauth| OAuthCredentials {
             access_token: oauth.access_token,
@@ -175,7 +174,10 @@ pub async fn setup_token() -> Result<()> {
 
     if !status.success() {
         return Err(Error::CliError {
-            message: format!("claude setup-token failed with exit code {:?}", status.code()),
+            message: format!(
+                "claude setup-token failed with exit code {:?}",
+                status.code()
+            ),
             is_auth_error: true,
         });
     }

@@ -157,7 +157,10 @@ mod tests {
         assert_eq!(Model::Sonnet.to_string(), "sonnet");
         assert_eq!(Model::Opus.to_string(), "opus");
         assert_eq!(Model::Haiku.to_string(), "haiku");
-        assert_eq!(Model::Custom("claude-3-5-sonnet".into()).to_string(), "claude-3-5-sonnet");
+        assert_eq!(
+            Model::Custom("claude-3-5-sonnet".into()).to_string(),
+            "claude-3-5-sonnet"
+        );
     }
 
     #[test]
@@ -165,12 +168,20 @@ mod tests {
         assert_eq!(Model::from("sonnet"), Model::Sonnet);
         assert_eq!(Model::from("OPUS"), Model::Opus);
         assert_eq!(Model::from("Haiku"), Model::Haiku);
-        assert_eq!(Model::from("custom-model"), Model::Custom("custom-model".into()));
+        assert_eq!(
+            Model::from("custom-model"),
+            Model::Custom("custom-model".into())
+        );
     }
 
     #[test]
     fn model_serde_roundtrip() {
-        let models = [Model::Sonnet, Model::Opus, Model::Haiku, Model::Custom("test".into())];
+        let models = [
+            Model::Sonnet,
+            Model::Opus,
+            Model::Haiku,
+            Model::Custom("test".into()),
+        ];
         for model in models {
             let json = serde_json::to_string(&model).unwrap();
             let parsed: Model = serde_json::from_str(&json).unwrap();
@@ -183,7 +194,10 @@ mod tests {
         assert_eq!(PermissionMode::Default.to_string(), "default");
         assert_eq!(PermissionMode::Plan.to_string(), "plan");
         assert_eq!(PermissionMode::AcceptEdits.to_string(), "acceptEdits");
-        assert_eq!(PermissionMode::BypassPermissions.to_string(), "bypassPermissions");
+        assert_eq!(
+            PermissionMode::BypassPermissions.to_string(),
+            "bypassPermissions"
+        );
     }
 
     #[test]

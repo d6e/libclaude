@@ -161,7 +161,8 @@ impl StderrReader {
 }
 
 /// Future type for reading a message.
-type ReadMessageFuture = Pin<Box<dyn Future<Output = (ProcessReader, Result<Option<CliMessage>>)> + Send>>;
+type ReadMessageFuture =
+    Pin<Box<dyn Future<Output = (ProcessReader, Result<Option<CliMessage>>)> + Send>>;
 
 /// Wrapper for async polling of the message stream.
 ///

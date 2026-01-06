@@ -260,10 +260,10 @@ impl Session {
     /// Add cost to the session totals.
     fn add_cost(&self, cost: f64) {
         let microdollars = (cost * 1_000_000.0) as u64;
-        self.cost_microdollars.fetch_add(microdollars, Ordering::Relaxed);
+        self.cost_microdollars
+            .fetch_add(microdollars, Ordering::Relaxed);
     }
 }
-
 
 #[cfg(test)]
 mod tests {
