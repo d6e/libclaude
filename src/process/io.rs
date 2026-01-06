@@ -230,4 +230,44 @@ mod tests {
         fn assert_send<T: Send>() {}
         assert_send::<CliMessageStream>();
     }
+
+    #[test]
+    fn process_writer_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<ProcessWriter>();
+    }
+
+    #[test]
+    fn stderr_reader_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<StderrReader>();
+    }
+
+    #[test]
+    fn message_stream_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<MessageStream>();
+    }
+
+    #[tokio::test]
+    async fn process_reader_type_is_correct() {
+        // ProcessReader and its components have the right types
+        // Actual I/O is tested via integration tests since ChildStdout requires a real process
+        fn assert_reader_type<T: Send + Sync>() {}
+        assert_reader_type::<ProcessReader>();
+    }
+
+    #[test]
+    fn cli_message_stream_type_is_correct() {
+        // CliMessageStream can be used as a futures::Stream
+        fn assert_stream<T: futures::Stream>() {}
+        assert_stream::<CliMessageStream>();
+    }
+
+    #[test]
+    fn process_writer_type_is_correct() {
+        // ProcessWriter is Send + Sync
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<ProcessWriter>();
+    }
 }

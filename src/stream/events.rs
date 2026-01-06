@@ -177,6 +177,7 @@ impl StreamEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::{AssistantMessageContent, TextBlock, ToolUseBlock};
 
     #[test]
     fn stream_event_is_send_sync() {
@@ -208,5 +209,179 @@ mod tests {
         };
         assert_eq!(info.session_id.as_str(), "test-123");
         assert_eq!(info.tools.len(), 2);
+    }
+
+    #[test]
+    fn is_complete_true_for_complete_event() {
+        let result = ResultMessage {
+            subtype: "success".to_string(),
+            is_error: false,
+            duration_ms: Some(100),
+            num_turns: Some(1),
+            result: Some("done".to_string()),
+            total_cost_usd: Some(0.01),
+            usage: None,
+            session_id: None,
+        };
+        let event = StreamEvent::Complete(result);
+        assert!(event.is_complete());
+        assert!(!event.is_text_delta());
+    }
+
+    #[test]
+    fn text_returns_none_for_non_text_events() {
+        let result = ResultMessage {
+            subtype: "success".to_string(),
+            is_error: false,
+            duration_ms: None,
+            num_turns: None,
+            result: None,
+            total_cost_usd: None,
+            usage: None,
+            session_id: None,
+        };
+        let event = StreamEvent::Complete(result);
+        assert!(event.text().is_none());
+    }
+
+    #[test]
+    fn as_complete_returns_result() {
+        let result = ResultMessage {
+            subtype: "success".to_string(),
+            is_error: false,
+            duration_ms: Some(500),
+            num_turns: Some(2),
+            result: Some("final".to_string()),
+            total_cost_usd: Some(0.05),
+            usage: None,
+            session_id: Some("session-1".to_string()),
+        };
+        let event = StreamEvent::Complete(result.clone());
+        let extracted = event.as_complete().unwrap();
+        assert_eq!(extracted.subtype, "success");
+        assert_eq!(extracted.duration_ms, Some(500));
+    }
+
+    #[test]
+    fn as_complete_returns_none_for_other_events() {
+        let event = StreamEvent::TextDelta {
+            index: 0,
+            text: "text".to_string(),
+        };
+        assert!(event.as_complete().is_none());
+    }
+
+    #[test]
+    fn as_assistant_message_returns_message() {
+        let msg = AssistantMessage {
+            message: AssistantMessageContent {
+                id: "msg_123".to_string(),
+                model: "claude".to_string(),
+                role: "assistant".to_string(),
+                content: vec![ContentBlock::Text(TextBlock {
+                    text: "Hello".to_string(),
+                })],
+                stop_reason: Some("end_turn".to_string()),
+                stop_sequence: None,
+                usage: None,
+            },
+            session_id: None,
+        };
+        let event = StreamEvent::AssistantMessage(msg);
+        let extracted = event.as_assistant_message().unwrap();
+        assert_eq!(extracted.message.id, "msg_123");
+        assert_eq!(extracted.message.text(), "Hello");
+    }
+
+    #[test]
+    fn as_assistant_message_returns_none_for_other_events() {
+        let event = StreamEvent::UsageUpdate(Usage::default());
+        assert!(event.as_assistant_message().is_none());
+    }
+
+    #[test]
+    fn as_session_init_returns_info() {
+        let info = SessionInfo {
+            session_id: SessionId::new("sess-abc"),
+            cwd: Some("/tmp".to_string()),
+            tools: vec!["Bash".to_string()],
+            model: Some("opus".to_string()),
+            permission_mode: None,
+            claude_code_version: None,
+        };
+        let event = StreamEvent::SessionInit(info);
+        let extracted = event.as_session_init().unwrap();
+        assert_eq!(extracted.session_id.as_str(), "sess-abc");
+        assert_eq!(extracted.cwd, Some("/tmp".to_string()));
+    }
+
+    #[test]
+    fn as_session_init_returns_none_for_other_events() {
+        let event = StreamEvent::ThinkingDelta {
+            index: 0,
+            thinking: "hmm".to_string(),
+        };
+        assert!(event.as_session_init().is_none());
+    }
+
+    #[test]
+    fn tool_input_delta_event() {
+        let event = StreamEvent::ToolInputDelta {
+            index: 1,
+            partial_json: r#"{"path":"#.to_string(),
+        };
+        assert!(!event.is_text_delta());
+        assert!(!event.is_complete());
+        assert!(event.text().is_none());
+    }
+
+    #[test]
+    fn thinking_delta_event() {
+        let event = StreamEvent::ThinkingDelta {
+            index: 0,
+            thinking: "Let me think...".to_string(),
+        };
+        assert!(!event.is_text_delta());
+        assert!(!event.is_complete());
+    }
+
+    #[test]
+    fn content_block_complete_event() {
+        let block = ContentBlock::ToolUse(ToolUseBlock {
+            id: "tool_1".to_string(),
+            name: "Read".to_string(),
+            input: serde_json::json!({"path": "/tmp"}),
+        });
+        let event = StreamEvent::ContentBlockComplete { index: 0, block };
+        assert!(!event.is_text_delta());
+        assert!(!event.is_complete());
+    }
+
+    #[test]
+    fn usage_update_event() {
+        let usage = Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            ..Default::default()
+        };
+        let event = StreamEvent::UsageUpdate(usage);
+        assert!(!event.is_text_delta());
+        assert!(!event.is_complete());
+    }
+
+    #[test]
+    fn session_info_with_minimal_fields() {
+        let info = SessionInfo {
+            session_id: SessionId::new("min"),
+            cwd: None,
+            tools: vec![],
+            model: None,
+            permission_mode: None,
+            claude_code_version: None,
+        };
+        assert_eq!(info.session_id.as_str(), "min");
+        assert!(info.cwd.is_none());
+        assert!(info.tools.is_empty());
+        assert!(info.model.is_none());
     }
 }

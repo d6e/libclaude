@@ -231,4 +231,120 @@ mod tests {
         let result = fallible_json();
         assert!(matches!(result, Err(Error::JsonParse { .. })));
     }
+
+    #[test]
+    fn error_display_messages() {
+        let err = Error::AuthNotConfigured;
+        assert!(err.to_string().contains("no authentication configured"));
+
+        let err = Error::OAuthCredentialsNotFound {
+            path: "/home/user/.claude".to_string(),
+        };
+        assert!(err.to_string().contains("/home/user/.claude"));
+
+        let err = Error::EnvVarNotFound {
+            var: "ANTHROPIC_API_KEY",
+        };
+        assert!(err.to_string().contains("ANTHROPIC_API_KEY"));
+
+        let err = Error::InvalidConfig("bad config".to_string());
+        assert!(err.to_string().contains("bad config"));
+
+        let err = Error::CliNotFound {
+            searched: "PATH".to_string(),
+        };
+        assert!(err.to_string().contains("claude CLI not found"));
+
+        let err = Error::Timeout(Duration::from_secs(30));
+        assert!(err.to_string().contains("30"));
+
+        let err = Error::BudgetExceeded {
+            spent: 5.0,
+            budget: 3.0,
+        };
+        assert!(err.to_string().contains("5.0000"));
+        assert!(err.to_string().contains("3.0000"));
+
+        let err = Error::Cancelled;
+        assert!(err.to_string().contains("cancelled"));
+
+        let err = Error::StreamClosed;
+        assert!(err.to_string().contains("stream closed"));
+
+        let err = Error::UnexpectedMessage {
+            message_type: "unknown".to_string(),
+        };
+        assert!(err.to_string().contains("unknown"));
+    }
+
+    #[test]
+    fn json_parse_error_with_context() {
+        let raw = r#"{"invalid: json"#;
+        let json_err = serde_json::from_str::<serde_json::Value>(raw).unwrap_err();
+        let err = Error::json_parse(json_err, raw);
+        if let Error::JsonParse { message, .. } = err {
+            assert!(message.contains("at position"));
+        } else {
+            panic!("Expected JsonParse error");
+        }
+    }
+
+    #[test]
+    fn json_parse_error_truncates_long_input() {
+        let raw = "x".repeat(200);
+        let json_err = serde_json::from_str::<serde_json::Value>(&raw).unwrap_err();
+        let err = Error::json_parse(json_err, &raw);
+        if let Error::JsonParse { message, .. } = err {
+            // Should be truncated to 100 chars
+            assert!(message.len() < 200);
+        } else {
+            panic!("Expected JsonParse error");
+        }
+    }
+
+    #[test]
+    fn io_error_helper() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pipe broken");
+        let err = Error::io(io_err);
+        assert!(matches!(err, Error::Io(_)));
+        assert!(err.to_string().contains("IO error"));
+    }
+
+    #[test]
+    fn io_error_is_retryable() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out");
+        let err = Error::io(io_err);
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn cli_error_not_retryable() {
+        let err = Error::CliError {
+            message: "error".to_string(),
+            is_auth_error: false,
+        };
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn budget_exceeded_not_retryable() {
+        let err = Error::BudgetExceeded {
+            spent: 10.0,
+            budget: 5.0,
+        };
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn invalid_config_not_auth_error() {
+        let err = Error::InvalidConfig("test".to_string());
+        assert!(!err.is_auth_error());
+    }
+
+    #[test]
+    fn process_spawn_not_retryable() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "not found");
+        let err = Error::ProcessSpawn(io_err);
+        assert!(!err.is_retryable());
+    }
 }

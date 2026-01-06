@@ -482,6 +482,7 @@ impl ClientBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{AuthMethod, Model, PermissionMode};
 
     #[test]
     fn client_is_send_sync() {
@@ -529,5 +530,244 @@ mod tests {
         let config = ClientConfig::builder().api_key("test-key").build().unwrap();
         let client = ClaudeClient::with_config(config);
         assert!(client.config().model().is_none());
+    }
+
+    #[test]
+    fn builder_with_oauth_token() {
+        let client = ClaudeClient::builder()
+            .oauth_token("oauth-token-123")
+            .build()
+            .unwrap();
+        assert!(client.config().model().is_none());
+    }
+
+    #[test]
+    fn builder_with_system_prompt() {
+        // Just verify the builder accepts system_prompt
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .system_prompt("You are a helpful assistant")
+            .build()
+            .unwrap();
+        // Verify build succeeded
+        assert!(client.config().model().is_none());
+    }
+
+    #[test]
+    fn builder_with_append_system_prompt() {
+        // Just verify the builder accepts append_system_prompt
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .system_prompt("Base prompt")
+            .append_system_prompt(" with extra")
+            .build()
+            .unwrap();
+        // Verify build succeeded
+        assert!(client.config().model().is_none());
+    }
+
+    #[test]
+    fn builder_with_tools() {
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .tools(["Read", "Write", "Bash"])
+            .build()
+            .unwrap();
+        // Verify build succeeded
+        assert!(client.config().model().is_none());
+    }
+
+    #[test]
+    fn builder_with_allowed_tools() {
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .allowed_tools(["Read", "Write"])
+            .build()
+            .unwrap();
+        // Verify build succeeded
+        assert!(client.config().model().is_none());
+    }
+
+    #[test]
+    fn builder_with_disallowed_tools() {
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .disallowed_tools(["Bash"])
+            .build()
+            .unwrap();
+        // Verify build succeeded
+        assert!(client.config().model().is_none());
+    }
+
+    #[test]
+    fn builder_with_timeout() {
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .timeout(Duration::from_secs(60))
+            .build()
+            .unwrap();
+        assert_eq!(client.config().timeout(), Some(Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn builder_with_working_directory() {
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .working_directory("/tmp")
+            .build()
+            .unwrap();
+        assert!(client.config().working_directory().is_some());
+    }
+
+    #[test]
+    fn builder_with_cli_path() {
+        // Just verify the builder accepts cli_path
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .cli_path("/usr/local/bin/claude")
+            .build()
+            .unwrap();
+        // Verify build succeeded
+        assert!(client.config().model().is_none());
+    }
+
+    #[test]
+    fn builder_with_env() {
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .env("MY_VAR", "my_value")
+            .build()
+            .unwrap();
+        // Env vars are stored in config
+        assert!(client.config().model().is_none()); // Just verify build works
+    }
+
+    #[test]
+    fn builder_with_inherit_env_false() {
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .inherit_env(false)
+            .build()
+            .unwrap();
+        assert!(client.config().model().is_none()); // Just verify build works
+    }
+
+    #[test]
+    fn builder_with_mcp_config() {
+        // Just verify the builder accepts mcp_config
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .mcp_config("/path/to/mcp.json")
+            .build()
+            .unwrap();
+        // Verify build succeeded
+        assert!(client.config().model().is_none());
+    }
+
+    #[test]
+    fn builder_with_json_schema() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"}
+            }
+        });
+        // Just verify the builder accepts json_schema
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .json_schema(schema)
+            .build()
+            .unwrap();
+        // Verify build succeeded
+        assert!(client.config().model().is_none());
+    }
+
+    #[test]
+    fn builder_with_include_partial_messages() {
+        // Just verify the builder accepts include_partial_messages
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .include_partial_messages(true)
+            .build()
+            .unwrap();
+        // Verify build succeeded
+        assert!(client.config().model().is_none());
+    }
+
+    #[test]
+    fn builder_with_all_models() {
+        // Test all model variants
+        for model in [Model::Opus, Model::Sonnet, Model::Haiku] {
+            let client = ClaudeClient::builder()
+                .api_key("test-key")
+                .model(model.clone())
+                .build()
+                .unwrap();
+            assert_eq!(client.config().model(), Some(&model));
+        }
+    }
+
+    #[test]
+    fn builder_with_all_permission_modes() {
+        // Test all permission mode variants
+        for mode in [
+            PermissionMode::Default,
+            PermissionMode::BypassPermissions,
+            PermissionMode::Plan,
+        ] {
+            let client = ClaudeClient::builder()
+                .api_key("test-key")
+                .permission_mode(mode.clone())
+                .build()
+                .unwrap();
+            assert_eq!(client.config().permission_mode(), mode);
+        }
+    }
+
+    #[test]
+    fn builder_with_fallback_auth() {
+        let client = ClaudeClient::builder()
+            .api_key("primary-key")
+            .fallback(AuthMethod::ApiKeyFromEnv)
+            .build()
+            .unwrap();
+        // Just verify it builds
+        assert!(client.config().model().is_none());
+    }
+
+    #[test]
+    fn builder_with_max_budget() {
+        // Just verify the builder accepts max_budget_usd
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .max_budget_usd(5.0)
+            .build()
+            .unwrap();
+        // Verify build succeeded
+        assert!(client.config().model().is_none());
+    }
+
+    #[test]
+    fn client_clone_shares_config() {
+        let client1 = ClaudeClient::builder()
+            .api_key("test-key")
+            .model(Model::Opus)
+            .build()
+            .unwrap();
+        let client2 = client1.clone();
+        assert_eq!(client1.config().model(), client2.config().model());
+    }
+
+    #[test]
+    fn builder_default_creates_empty_builder() {
+        let _builder = ClientBuilder::default();
+        // Default builder exists - verified by compilation
+    }
+
+    #[test]
+    fn builder_new_same_as_default() {
+        let _builder1 = ClientBuilder::new();
+        let _builder2 = ClientBuilder::default();
+        // Both exist - verified by compilation
     }
 }

@@ -586,4 +586,342 @@ mod tests {
         assert!(response.text.is_empty());
         assert!(!response.is_success());
     }
+
+    #[test]
+    fn content_block_builder_thinking() {
+        let mut builder = ContentBlockBuilder::new(ContentBlockInfo::Thinking {
+            thinking: "Let me ".to_string(),
+        });
+        builder.apply_delta(&ContentDelta::ThinkingDelta {
+            thinking: "think about this...".to_string(),
+        });
+        let block = builder.build().unwrap();
+        if let ContentBlock::Thinking(t) = block {
+            assert_eq!(t.thinking, "Let me think about this...");
+        } else {
+            panic!("Expected Thinking block");
+        }
+    }
+
+    #[test]
+    fn content_block_builder_empty_text() {
+        let builder = ContentBlockBuilder::new(ContentBlockInfo::Text {
+            text: String::new(),
+        });
+        let block = builder.build().unwrap();
+        if let ContentBlock::Text(t) = block {
+            assert!(t.text.is_empty());
+        } else {
+            panic!("Expected Text block");
+        }
+    }
+
+    #[test]
+    fn content_block_builder_tool_use_invalid_json() {
+        let mut builder = ContentBlockBuilder::new(ContentBlockInfo::ToolUse {
+            id: "tool_123".to_string(),
+            name: "Read".to_string(),
+            input: serde_json::json!({}),
+        });
+        builder.apply_delta(&ContentDelta::InputJsonDelta {
+            partial_json: "not valid json".to_string(),
+        });
+        let block = builder.build().unwrap();
+        // Invalid JSON defaults to null (from unwrap_or_default on serde_json::Value)
+        if let ContentBlock::ToolUse(t) = block {
+            assert_eq!(t.input, serde_json::Value::Null);
+        } else {
+            panic!("Expected ToolUse block");
+        }
+    }
+
+    #[test]
+    fn session_info_from_system_with_all_fields() {
+        let system = SystemMessage {
+            subtype: "init".to_string(),
+            cwd: Some("/home/user".to_string()),
+            session_id: Some("session-123".to_string()),
+            tools: vec!["Read".to_string(), "Write".to_string()],
+            model: Some("claude-opus".to_string()),
+            permission_mode: Some("default".to_string()),
+            claude_code_version: Some("2.0.76".to_string()),
+        };
+        let info = ResponseStream::session_info_from_system(&system);
+        assert_eq!(info.session_id.as_str(), "session-123");
+        assert_eq!(info.cwd, Some("/home/user".to_string()));
+        assert_eq!(info.tools, vec!["Read", "Write"]);
+        assert_eq!(info.model, Some("claude-opus".to_string()));
+        assert_eq!(info.permission_mode, Some("default".to_string()));
+        assert_eq!(info.claude_code_version, Some("2.0.76".to_string()));
+    }
+
+    #[test]
+    fn session_info_from_system_with_missing_session_id() {
+        let system = SystemMessage {
+            subtype: "init".to_string(),
+            cwd: None,
+            session_id: None,
+            tools: vec![],
+            model: None,
+            permission_mode: None,
+            claude_code_version: None,
+        };
+        let info = ResponseStream::session_info_from_system(&system);
+        assert_eq!(info.session_id.as_str(), "unknown");
+    }
+
+    #[test]
+    fn transform_message_system_init() {
+        let system = SystemMessage {
+            subtype: "init".to_string(),
+            cwd: Some("/home".to_string()),
+            session_id: Some("test-id".to_string()),
+            tools: vec!["Bash".to_string()],
+            model: Some("claude".to_string()),
+            permission_mode: None,
+            claude_code_version: None,
+        };
+        let msg = CliMessage::System(system);
+        let mut blocks = HashMap::new();
+        let events = ResponseStream::transform_message(msg, &mut blocks).unwrap();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0], StreamEvent::SessionInit(_)));
+    }
+
+    #[test]
+    fn transform_message_system_non_init() {
+        let system = SystemMessage {
+            subtype: "status".to_string(),
+            cwd: None,
+            session_id: None,
+            tools: vec![],
+            model: None,
+            permission_mode: None,
+            claude_code_version: None,
+        };
+        let msg = CliMessage::System(system);
+        let mut blocks = HashMap::new();
+        let events = ResponseStream::transform_message(msg, &mut blocks).unwrap();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn transform_message_result() {
+        let result = ResultMessage {
+            subtype: "success".to_string(),
+            is_error: false,
+            duration_ms: Some(1000),
+            num_turns: Some(1),
+            result: Some("Done".to_string()),
+            total_cost_usd: Some(0.01),
+            usage: None,
+            session_id: None,
+        };
+        let msg = CliMessage::Result(result);
+        let mut blocks = HashMap::new();
+        let events = ResponseStream::transform_message(msg, &mut blocks).unwrap();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0], StreamEvent::Complete(_)));
+    }
+
+    #[test]
+    fn transform_message_stream_event_text_delta() {
+        use crate::protocol::StreamEventMessage;
+        let event = StreamEventMessage {
+            event: StreamEventType::ContentBlockDelta {
+                index: 0,
+                delta: ContentDelta::TextDelta {
+                    text: "Hello".to_string(),
+                },
+            },
+            session_id: None,
+        };
+        let msg = CliMessage::StreamEvent(event);
+        let mut blocks = HashMap::new();
+        let events = ResponseStream::transform_message(msg, &mut blocks).unwrap();
+        assert_eq!(events.len(), 1);
+        if let StreamEvent::TextDelta { index, text } = &events[0] {
+            assert_eq!(*index, 0);
+            assert_eq!(text, "Hello");
+        } else {
+            panic!("Expected TextDelta");
+        }
+    }
+
+    #[test]
+    fn transform_message_stream_event_content_block_lifecycle() {
+        use crate::protocol::StreamEventMessage;
+        let mut blocks = HashMap::new();
+
+        // Start a text block
+        let start_event = StreamEventMessage {
+            event: StreamEventType::ContentBlockStart {
+                index: 0,
+                content_block: ContentBlockInfo::Text {
+                    text: "Hi".to_string(),
+                },
+            },
+            session_id: None,
+        };
+        let _ = ResponseStream::transform_message(CliMessage::StreamEvent(start_event), &mut blocks).unwrap();
+        assert!(blocks.contains_key(&0));
+
+        // Add delta
+        let delta_event = StreamEventMessage {
+            event: StreamEventType::ContentBlockDelta {
+                index: 0,
+                delta: ContentDelta::TextDelta {
+                    text: " there".to_string(),
+                },
+            },
+            session_id: None,
+        };
+        let _ = ResponseStream::transform_message(CliMessage::StreamEvent(delta_event), &mut blocks).unwrap();
+
+        // Stop the block
+        let stop_event = StreamEventMessage {
+            event: StreamEventType::ContentBlockStop { index: 0 },
+            session_id: None,
+        };
+        let events = ResponseStream::transform_message(CliMessage::StreamEvent(stop_event), &mut blocks).unwrap();
+
+        assert!(!blocks.contains_key(&0));
+        assert_eq!(events.len(), 1);
+        if let StreamEvent::ContentBlockComplete { index, block } = &events[0] {
+            assert_eq!(*index, 0);
+            if let ContentBlock::Text(t) = block {
+                assert_eq!(t.text, "Hi there");
+            } else {
+                panic!("Expected Text block");
+            }
+        } else {
+            panic!("Expected ContentBlockComplete");
+        }
+    }
+
+    #[test]
+    fn transform_message_stream_event_message_delta_with_usage() {
+        use crate::protocol::{MessageDeltaInfo, StreamEventMessage};
+        let usage = Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            ..Default::default()
+        };
+        let event = StreamEventMessage {
+            event: StreamEventType::MessageDelta {
+                delta: MessageDeltaInfo {
+                    stop_reason: None,
+                    stop_sequence: None,
+                },
+                usage: Some(usage.clone()),
+            },
+            session_id: None,
+        };
+        let msg = CliMessage::StreamEvent(event);
+        let mut blocks = HashMap::new();
+        let events = ResponseStream::transform_message(msg, &mut blocks).unwrap();
+        assert_eq!(events.len(), 1);
+        if let StreamEvent::UsageUpdate(u) = &events[0] {
+            assert_eq!(u.input_tokens, 100);
+            assert_eq!(u.output_tokens, 50);
+        } else {
+            panic!("Expected UsageUpdate");
+        }
+    }
+
+    #[test]
+    fn transform_message_stream_event_error() {
+        use crate::protocol::{StreamError, StreamEventMessage};
+        let event = StreamEventMessage {
+            event: StreamEventType::Error {
+                error: StreamError {
+                    error_type: "auth_error".to_string(),
+                    message: "Invalid API key".to_string(),
+                },
+            },
+            session_id: None,
+        };
+        let msg = CliMessage::StreamEvent(event);
+        let mut blocks = HashMap::new();
+        let result = ResponseStream::transform_message(msg, &mut blocks);
+        assert!(result.is_err());
+        if let Err(Error::CliError { message, is_auth_error }) = result {
+            assert_eq!(message, "Invalid API key");
+            assert!(is_auth_error);
+        }
+    }
+
+    #[test]
+    fn transform_message_stream_event_ping() {
+        use crate::protocol::StreamEventMessage;
+        let event = StreamEventMessage {
+            event: StreamEventType::Ping,
+            session_id: None,
+        };
+        let msg = CliMessage::StreamEvent(event);
+        let mut blocks = HashMap::new();
+        let events = ResponseStream::transform_message(msg, &mut blocks).unwrap();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn collected_response_is_success() {
+        let mut response = CollectedResponse::default();
+        assert!(!response.is_success());
+
+        response.result = Some(ResultMessage {
+            subtype: "success".to_string(),
+            is_error: false,
+            duration_ms: None,
+            num_turns: None,
+            result: Some("done".to_string()),
+            total_cost_usd: None,
+            usage: None,
+            session_id: None,
+        });
+        assert!(response.is_success());
+    }
+
+    #[test]
+    fn collected_response_result_text() {
+        let mut response = CollectedResponse::default();
+        assert!(response.result_text().is_none());
+
+        response.result = Some(ResultMessage {
+            subtype: "success".to_string(),
+            is_error: false,
+            duration_ms: None,
+            num_turns: None,
+            result: Some("the result".to_string()),
+            total_cost_usd: None,
+            usage: None,
+            session_id: None,
+        });
+        assert_eq!(response.result_text(), Some("the result"));
+    }
+
+    #[tokio::test]
+    async fn with_timeout_success() {
+        let result = with_timeout(Duration::from_secs(1), async { Ok::<_, Error>(42) }).await;
+        assert_eq!(result.unwrap(), 42);
+    }
+
+    #[tokio::test]
+    async fn with_timeout_expires() {
+        let result = with_timeout(Duration::from_millis(1), async {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            Ok::<_, Error>(42)
+        })
+        .await;
+        assert!(matches!(result, Err(Error::Timeout(_))));
+    }
+
+    #[tokio::test]
+    async fn with_timeout_inner_error() {
+        let result = with_timeout(Duration::from_secs(1), async {
+            Err::<i32, _>(Error::Cancelled)
+        })
+        .await;
+        assert!(matches!(result, Err(Error::Cancelled)));
+    }
 }

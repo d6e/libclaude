@@ -268,6 +268,7 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::Ordering;
 
     #[test]
     fn session_is_send_sync() {
@@ -310,5 +311,123 @@ mod tests {
         usage.accumulate(&u2);
         assert_eq!(usage.input_tokens, 300);
         assert_eq!(usage.output_tokens, 150);
+    }
+
+    #[test]
+    fn cost_microdollar_conversion_zero() {
+        let cost = 0.0;
+        let microdollars = (cost * 1_000_000.0) as u64;
+        assert_eq!(microdollars, 0);
+        let back = microdollars as f64 / 1_000_000.0;
+        assert_eq!(back, 0.0);
+    }
+
+    #[test]
+    fn cost_microdollar_conversion_large() {
+        let cost = 100.50;
+        let microdollars = (cost * 1_000_000.0) as u64;
+        assert_eq!(microdollars, 100_500_000);
+        let back = microdollars as f64 / 1_000_000.0;
+        assert!((cost - back).abs() < 0.000001);
+    }
+
+    #[test]
+    fn cost_microdollar_conversion_small() {
+        let cost = 0.000001;
+        let microdollars = (cost * 1_000_000.0) as u64;
+        assert_eq!(microdollars, 1);
+        let back = microdollars as f64 / 1_000_000.0;
+        assert!((cost - back).abs() < 0.0000001);
+    }
+
+    #[test]
+    fn atomic_cost_operations() {
+        let cost_microdollars = AtomicU64::new(0);
+
+        // Add first cost
+        let cost1 = 0.05;
+        let micros1 = (cost1 * 1_000_000.0) as u64;
+        cost_microdollars.fetch_add(micros1, Ordering::Relaxed);
+
+        // Add second cost
+        let cost2 = 0.03;
+        let micros2 = (cost2 * 1_000_000.0) as u64;
+        cost_microdollars.fetch_add(micros2, Ordering::Relaxed);
+
+        // Check total
+        let total_micros = cost_microdollars.load(Ordering::Relaxed);
+        let total = total_micros as f64 / 1_000_000.0;
+        assert!((total - 0.08).abs() < 0.000001);
+    }
+
+    #[test]
+    fn usage_accumulation_with_cache_tokens() {
+        let mut usage = Usage::default();
+        let u1 = Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_input_tokens: 20,
+            cache_creation_input_tokens: 10,
+        };
+        usage.accumulate(&u1);
+        assert_eq!(usage.input_tokens, 100);
+        assert_eq!(usage.output_tokens, 50);
+        assert_eq!(usage.cache_read_input_tokens, 20);
+        assert_eq!(usage.cache_creation_input_tokens, 10);
+    }
+
+    #[test]
+    fn usage_accumulation_multiple_with_cache() {
+        let mut usage = Usage::default();
+        let u1 = Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_input_tokens: 20,
+            cache_creation_input_tokens: 10,
+        };
+        let u2 = Usage {
+            input_tokens: 200,
+            output_tokens: 100,
+            cache_read_input_tokens: 30,
+            cache_creation_input_tokens: 0,
+        };
+        usage.accumulate(&u1);
+        usage.accumulate(&u2);
+        assert_eq!(usage.input_tokens, 300);
+        assert_eq!(usage.output_tokens, 150);
+        assert_eq!(usage.cache_read_input_tokens, 50);
+        assert_eq!(usage.cache_creation_input_tokens, 10);
+    }
+
+    #[test]
+    fn usage_total_tokens() {
+        let usage = Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+        };
+        assert_eq!(usage.total_tokens(), 150);
+    }
+
+    #[test]
+    fn session_id_clone() {
+        let id1 = SessionId::new("session-abc");
+        let id2 = id1.clone();
+        assert_eq!(id1.as_str(), id2.as_str());
+    }
+
+    #[test]
+    fn session_id_debug() {
+        let id = SessionId::new("debug-test");
+        let debug_str = format!("{:?}", id);
+        assert!(debug_str.contains("debug-test"));
+    }
+
+    #[test]
+    fn session_id_display() {
+        let id = SessionId::new("display-test");
+        let display_str = format!("{}", id);
+        assert_eq!(display_str, "display-test");
     }
 }
