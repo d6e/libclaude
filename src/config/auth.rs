@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Error, Result};
 
 /// Authentication method for the Claude CLI.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum AuthMethod {
     /// Use API key directly (passed via ANTHROPIC_API_KEY env var to subprocess).
     ApiKey(String),
@@ -40,13 +40,8 @@ pub enum AuthMethod {
     /// Use OAuth credentials from ~/.claude/.credentials.json.
     OAuth,
     /// Auto-detect: try OAuth -> OAuthTokenFromEnv -> ApiKeyFromEnv.
+    #[default]
     Auto,
-}
-
-impl Default for AuthMethod {
-    fn default() -> Self {
-        AuthMethod::Auto
-    }
 }
 
 /// Environment variable name for API key.

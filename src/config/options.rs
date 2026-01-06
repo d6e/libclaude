@@ -5,10 +5,11 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 /// Model selection with escape hatch for new models.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Model {
     /// Claude Sonnet (balanced performance and cost).
+    #[default]
     Sonnet,
     /// Claude Opus (highest capability).
     Opus,
@@ -17,12 +18,6 @@ pub enum Model {
     /// Custom model identifier for new or specialized models.
     #[serde(untagged)]
     Custom(String),
-}
-
-impl Default for Model {
-    fn default() -> Self {
-        Model::Sonnet
-    }
 }
 
 impl fmt::Display for Model {

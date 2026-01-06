@@ -422,6 +422,23 @@ impl ClientBuilder {
     // Session options
     // -------------------------------------------------------------------------
 
+    /// Resume a specific session by ID.
+    ///
+    /// When set, the client will use `--resume <session_id>` to continue
+    /// an existing conversation.
+    pub fn session_id(mut self, id: impl Into<crate::config::SessionId>) -> Self {
+        self.inner = self.inner.session_id(id);
+        self
+    }
+
+    /// Continue the most recent session.
+    ///
+    /// When set, the client will use `--continue` to resume the last conversation.
+    pub fn continue_session(mut self, cont: bool) -> Self {
+        self.inner = self.inner.continue_session(cont);
+        self
+    }
+
     /// Include intermediate assistant messages during tool execution.
     pub fn include_partial_messages(mut self, include: bool) -> Self {
         self.inner = self.inner.include_partial_messages(include);
@@ -769,5 +786,29 @@ mod tests {
         let _builder1 = ClientBuilder::new();
         let _builder2 = ClientBuilder::default();
         // Both exist - verified by compilation
+    }
+
+    #[test]
+    fn builder_with_session_id() {
+        // Just verify the builder accepts session_id
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .session_id("test-session-123")
+            .build()
+            .unwrap();
+        // Verify build succeeded
+        assert!(client.config().model().is_none());
+    }
+
+    #[test]
+    fn builder_with_continue_session() {
+        // Just verify the builder accepts continue_session
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .continue_session(true)
+            .build()
+            .unwrap();
+        // Verify build succeeded
+        assert!(client.config().model().is_none());
     }
 }

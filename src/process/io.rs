@@ -160,12 +160,15 @@ impl StderrReader {
     }
 }
 
+/// Future type for reading a message.
+type ReadMessageFuture = Pin<Box<dyn Future<Output = (ProcessReader, Result<Option<CliMessage>>)> + Send>>;
+
 /// Wrapper for async polling of the message stream.
 ///
 /// This implements the futures Stream trait for use with async combinators.
 pub struct CliMessageStream {
     reader: Option<ProcessReader>,
-    pending: Option<Pin<Box<dyn Future<Output = (ProcessReader, Result<Option<CliMessage>>)> + Send>>>,
+    pending: Option<ReadMessageFuture>,
 }
 
 impl CliMessageStream {

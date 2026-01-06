@@ -152,10 +152,11 @@ impl ResponseStream {
     /// Dispatch events to the tool observer.
     fn dispatch_to_observer(observer: &dyn ToolObserver, event: &StreamEvent) {
         match event {
-            StreamEvent::ContentBlockComplete { block, .. } => {
-                if let ContentBlock::ToolUse(tool_use) = block {
-                    observer.on_tool_use(&tool_use.id, &tool_use.name, &tool_use.input);
-                }
+            StreamEvent::ContentBlockComplete {
+                block: ContentBlock::ToolUse(tool_use),
+                ..
+            } => {
+                observer.on_tool_use(&tool_use.id, &tool_use.name, &tool_use.input);
             }
             StreamEvent::ToolResult(user_msg) => {
                 for result in user_msg.message.tool_results() {
