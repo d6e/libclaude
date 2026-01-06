@@ -175,7 +175,7 @@ fn build_command(config: &ClientConfig) -> Result<Command> {
 
 /// Build CLI arguments (prompt is sent via stdin, not as argument).
 fn build_args(config: &ClientConfig) -> Vec<String> {
-    let mut args = vec!["--output-format".to_string(), "json".to_string()];
+    let mut args = vec!["--output-format".to_string(), "stream-json".to_string()];
 
     if let Some(ref model) = config.model {
         args.push("--model".to_string());
@@ -383,7 +383,7 @@ mod tests {
 
         let args = build_args(&config);
         assert!(args.contains(&"--output-format".to_string()));
-        assert!(args.contains(&"json".to_string()));
+        assert!(args.contains(&"stream-json".to_string()));
         // Should NOT contain -p (prompt goes via stdin)
         assert!(!args.contains(&"-p".to_string()));
     }
