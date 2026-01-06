@@ -446,4 +446,164 @@ mod tests {
             Some(std::time::Duration::from_millis(5000))
         );
     }
+
+    #[test]
+    fn result_duration_none() {
+        let result = ResultMessage {
+            subtype: "success".into(),
+            is_error: false,
+            duration_ms: None,
+            num_turns: None,
+            result: None,
+            total_cost_usd: None,
+            usage: None,
+            session_id: None,
+        };
+        assert!(result.duration().is_none());
+    }
+
+    #[test]
+    fn cli_message_as_system_returns_none_for_non_system() {
+        let json = r#"{
+            "type": "result",
+            "subtype": "success",
+            "is_error": false
+        }"#;
+        let msg: CliMessage = serde_json::from_str(json).unwrap();
+        assert!(msg.as_system().is_none());
+    }
+
+    #[test]
+    fn cli_message_as_assistant_returns_none_for_non_assistant() {
+        let json = r#"{
+            "type": "system",
+            "subtype": "init"
+        }"#;
+        let msg: CliMessage = serde_json::from_str(json).unwrap();
+        assert!(msg.as_assistant().is_none());
+    }
+
+    #[test]
+    fn cli_message_as_user_returns_none_for_non_user() {
+        let json = r#"{
+            "type": "system",
+            "subtype": "init"
+        }"#;
+        let msg: CliMessage = serde_json::from_str(json).unwrap();
+        assert!(msg.as_user().is_none());
+    }
+
+    #[test]
+    fn cli_message_as_stream_event_returns_none_for_non_stream_event() {
+        let json = r#"{
+            "type": "system",
+            "subtype": "init"
+        }"#;
+        let msg: CliMessage = serde_json::from_str(json).unwrap();
+        assert!(msg.as_stream_event().is_none());
+    }
+
+    #[test]
+    fn cli_message_as_result_returns_none_for_non_result() {
+        let json = r#"{
+            "type": "system",
+            "subtype": "init"
+        }"#;
+        let msg: CliMessage = serde_json::from_str(json).unwrap();
+        assert!(msg.as_result().is_none());
+    }
+
+    #[test]
+    fn cli_message_session_id_for_all_types() {
+        // Test session_id extraction from User message
+        let user_json = r#"{
+            "type": "user",
+            "message": {"role": "user", "content": []},
+            "session_id": "user-session"
+        }"#;
+        let user_msg: CliMessage = serde_json::from_str(user_json).unwrap();
+        assert_eq!(user_msg.session_id(), Some("user-session"));
+
+        // Test session_id extraction from Result message
+        let result_json = r#"{
+            "type": "result",
+            "subtype": "success",
+            "session_id": "result-session"
+        }"#;
+        let result_msg: CliMessage = serde_json::from_str(result_json).unwrap();
+        assert_eq!(result_msg.session_id(), Some("result-session"));
+    }
+
+    #[test]
+    fn system_message_is_init_false_for_other_subtypes() {
+        let system = SystemMessage {
+            subtype: "status".into(),
+            cwd: None,
+            session_id: None,
+            tools: vec![],
+            model: None,
+            permission_mode: None,
+            claude_code_version: None,
+        };
+        assert!(!system.is_init());
+    }
+
+    #[test]
+    fn assistant_message_content_methods() {
+        let content = AssistantMessageContent {
+            id: "msg_123".into(),
+            model: "claude".into(),
+            role: "assistant".into(),
+            content: vec![
+                ContentBlock::Text(super::super::content::TextBlock {
+                    text: "Hello ".into(),
+                }),
+                ContentBlock::Text(super::super::content::TextBlock {
+                    text: "World".into(),
+                }),
+            ],
+            stop_reason: Some("end_turn".into()),
+            stop_sequence: None,
+            usage: None,
+        };
+
+        // text() joins without separator, so "Hello " + "World" = "Hello World"
+        assert_eq!(content.text(), "Hello World");
+        assert!(content.is_end_turn());
+        assert!(!content.is_tool_use());
+    }
+
+    #[test]
+    fn assistant_message_content_with_no_stop_reason() {
+        let content = AssistantMessageContent {
+            id: "msg_123".into(),
+            model: "claude".into(),
+            role: "assistant".into(),
+            content: vec![],
+            stop_reason: None,
+            stop_sequence: None,
+            usage: None,
+        };
+
+        assert!(!content.is_end_turn());
+        assert!(!content.is_tool_use());
+    }
+
+    #[test]
+    fn roundtrip_cli_message() {
+        // Test that a CLI message can be serialized and deserialized
+        let original = CliMessage::System(SystemMessage {
+            subtype: "init".into(),
+            cwd: Some("/home".into()),
+            session_id: Some("sess-123".into()),
+            tools: vec!["Read".into()],
+            model: Some("claude".into()),
+            permission_mode: Some("default".into()),
+            claude_code_version: Some("2.0.0".into()),
+        });
+
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: CliMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(original, parsed);
+    }
 }

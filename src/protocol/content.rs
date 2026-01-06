@@ -270,4 +270,119 @@ mod tests {
         assert!(json.contains(r#""id":"toolu_123""#));
         assert!(json.contains(r#""name":"Read""#));
     }
+
+    #[test]
+    fn content_block_as_text_returns_none_for_tool_use() {
+        let block = ContentBlock::ToolUse(ToolUseBlock {
+            id: "toolu_123".into(),
+            name: "Read".into(),
+            input: serde_json::json!({}),
+        });
+        assert!(block.as_text().is_none());
+        assert!(block.text().is_none());
+    }
+
+    #[test]
+    fn content_block_as_tool_use_returns_none_for_text() {
+        let block = ContentBlock::Text(TextBlock {
+            text: "hello".into(),
+        });
+        assert!(block.as_tool_use().is_none());
+    }
+
+    #[test]
+    fn content_block_as_tool_result_returns_none_for_text() {
+        let block = ContentBlock::Text(TextBlock {
+            text: "hello".into(),
+        });
+        assert!(block.as_tool_result().is_none());
+    }
+
+    #[test]
+    fn content_block_is_checks() {
+        let text = ContentBlock::Text(TextBlock { text: "hi".into() });
+        assert!(text.is_text());
+        assert!(!text.is_tool_use());
+        assert!(!text.is_tool_result());
+
+        let tool_use = ContentBlock::ToolUse(ToolUseBlock {
+            id: "t".into(),
+            name: "n".into(),
+            input: serde_json::json!({}),
+        });
+        assert!(!tool_use.is_text());
+        assert!(tool_use.is_tool_use());
+        assert!(!tool_use.is_tool_result());
+
+        let tool_result = ContentBlock::ToolResult(ToolResultBlock {
+            tool_use_id: "t".into(),
+            content: ToolResultContent::default(),
+            is_error: false,
+        });
+        assert!(!tool_result.is_text());
+        assert!(!tool_result.is_tool_use());
+        assert!(tool_result.is_tool_result());
+    }
+
+    #[test]
+    fn tool_result_content_default() {
+        let content = ToolResultContent::default();
+        assert_eq!(content.as_text(), "");
+    }
+
+    #[test]
+    fn tool_result_content_blocks_with_image() {
+        // Test that image blocks are filtered out when extracting text
+        let content = ToolResultContent::Blocks(vec![
+            ToolResultContentBlock::Text {
+                text: "first".into(),
+            },
+            ToolResultContentBlock::Image {
+                source: ImageSource {
+                    source_type: "base64".into(),
+                    media_type: "image/png".into(),
+                    data: "abc123".into(),
+                },
+            },
+            ToolResultContentBlock::Text {
+                text: "second".into(),
+            },
+        ]);
+        assert_eq!(content.as_text(), "first\nsecond");
+    }
+
+    #[test]
+    fn image_source_fields() {
+        let source = ImageSource {
+            source_type: "base64".into(),
+            media_type: "image/jpeg".into(),
+            data: "imagedata".into(),
+        };
+        assert_eq!(source.source_type, "base64");
+        assert_eq!(source.media_type, "image/jpeg");
+        assert_eq!(source.data, "imagedata");
+    }
+
+    #[test]
+    fn thinking_block_creation() {
+        let block = ContentBlock::Thinking(ThinkingBlock {
+            thinking: "pondering...".into(),
+        });
+        match block {
+            ContentBlock::Thinking(t) => assert_eq!(t.thinking, "pondering..."),
+            _ => panic!("Expected Thinking block"),
+        }
+    }
+
+    #[test]
+    fn tool_result_block_fields() {
+        let result = ToolResultBlock {
+            tool_use_id: "tool_abc".into(),
+            content: ToolResultContent::Text("output".into()),
+            is_error: true,
+        };
+        assert_eq!(result.tool_use_id, "tool_abc");
+        assert!(result.is_error);
+        assert_eq!(result.content.as_text(), "output");
+    }
 }

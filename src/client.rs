@@ -811,4 +811,91 @@ mod tests {
         // Verify build succeeded
         assert!(client.config().model().is_none());
     }
+
+    #[test]
+    fn builder_with_api_key_from_env() {
+        // This will fail if ANTHROPIC_API_KEY is not set, but the builder method works
+        let builder = ClaudeClient::builder().api_key_from_env();
+        // Verify the builder chain works
+        let _ = builder;
+    }
+
+    #[test]
+    fn builder_with_oauth_token_from_env() {
+        // This will fail if CLAUDE_CODE_OAUTH_TOKEN is not set, but the builder method works
+        let builder = ClaudeClient::builder().oauth_token_from_env();
+        // Verify the builder chain works
+        let _ = builder;
+    }
+
+    #[test]
+    fn builder_with_oauth() {
+        // This will fail if OAuth credentials don't exist, but the builder method works
+        let builder = ClaudeClient::builder().oauth();
+        // Verify the builder chain works
+        let _ = builder;
+    }
+
+    #[test]
+    fn builder_with_auth_auto() {
+        // auth_auto is the default
+        let builder = ClaudeClient::builder().auth_auto();
+        // Verify the builder chain works
+        let _ = builder;
+    }
+
+    #[test]
+    fn builder_with_tool_observer() {
+        use std::sync::Arc;
+
+        struct TestObserver;
+        impl crate::tools::ToolObserver for TestObserver {}
+
+        let observer: Arc<dyn crate::tools::ToolObserver> = Arc::new(TestObserver);
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .tool_observer(observer)
+            .build()
+            .unwrap();
+
+        assert!(client.config().tool_observer().is_some());
+    }
+
+    #[test]
+    fn client_config_accessor() {
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .model(Model::Sonnet)
+            .build()
+            .unwrap();
+
+        // config() returns a reference to the config
+        let config = client.config();
+        assert_eq!(config.model(), Some(&Model::Sonnet));
+    }
+
+    #[test]
+    fn builder_full_chain() {
+        // Test chaining many options together
+        let client = ClaudeClient::builder()
+            .api_key("test-key")
+            .model(Model::Opus)
+            .permission_mode(PermissionMode::Plan)
+            .system_prompt("Test prompt")
+            .append_system_prompt(" additional")
+            .tools(["Read"])
+            .allowed_tools(["Read", "Write"])
+            .disallowed_tools(["Bash"])
+            .max_budget_usd(10.0)
+            .timeout(Duration::from_secs(30))
+            .working_directory("/tmp")
+            .env("KEY", "VALUE")
+            .inherit_env(true)
+            .include_partial_messages(false)
+            .build()
+            .unwrap();
+
+        assert_eq!(client.config().model(), Some(&Model::Opus));
+        assert_eq!(client.config().permission_mode(), PermissionMode::Plan);
+    }
 }

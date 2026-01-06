@@ -347,4 +347,150 @@ mod tests {
             _ => panic!("Expected Error"),
         }
     }
+
+    #[test]
+    fn content_delta_as_text_returns_none_for_input_json() {
+        let delta = ContentDelta::InputJsonDelta {
+            partial_json: "{}".into(),
+        };
+        assert!(delta.as_text().is_none());
+    }
+
+    #[test]
+    fn content_delta_as_text_returns_none_for_thinking() {
+        let delta = ContentDelta::ThinkingDelta {
+            thinking: "hmm...".into(),
+        };
+        assert!(delta.as_text().is_none());
+    }
+
+    #[test]
+    fn content_delta_as_input_json_returns_none_for_text() {
+        let delta = ContentDelta::TextDelta {
+            text: "hello".into(),
+        };
+        assert!(delta.as_input_json().is_none());
+    }
+
+    #[test]
+    fn stream_event_type_is_text_delta_false_for_other_events() {
+        let event = StreamEventType::Ping;
+        assert!(!event.is_text_delta());
+
+        let event2 = StreamEventType::MessageStop;
+        assert!(!event2.is_text_delta());
+
+        let event3 = StreamEventType::ContentBlockDelta {
+            index: 0,
+            delta: ContentDelta::InputJsonDelta {
+                partial_json: "{}".into(),
+            },
+        };
+        assert!(!event3.is_text_delta());
+    }
+
+    #[test]
+    fn stream_event_type_text_delta_returns_none_for_other_events() {
+        let event = StreamEventType::Ping;
+        assert!(event.text_delta().is_none());
+
+        let event2 = StreamEventType::ContentBlockDelta {
+            index: 0,
+            delta: ContentDelta::ThinkingDelta {
+                thinking: "...".into(),
+            },
+        };
+        assert!(event2.text_delta().is_none());
+    }
+
+    #[test]
+    fn stream_event_type_is_message_stop_false_for_other_events() {
+        let event = StreamEventType::Ping;
+        assert!(!event.is_message_stop());
+    }
+
+    #[test]
+    fn stream_event_type_is_error_false_for_other_events() {
+        let event = StreamEventType::Ping;
+        assert!(!event.is_error());
+    }
+
+    #[test]
+    fn parse_thinking_block_start() {
+        let json = r#"{
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "thinking", "thinking": ""}
+        }"#;
+        let event: StreamEventType = serde_json::from_str(json).unwrap();
+        match event {
+            StreamEventType::ContentBlockStart {
+                index,
+                content_block,
+            } => {
+                assert_eq!(index, 0);
+                assert!(matches!(content_block, ContentBlockInfo::Thinking { .. }));
+            }
+            _ => panic!("Expected ContentBlockStart"),
+        }
+    }
+
+    #[test]
+    fn parse_thinking_delta() {
+        let json = r#"{
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "thinking_delta", "thinking": "pondering..."}
+        }"#;
+        let event: StreamEventType = serde_json::from_str(json).unwrap();
+        match event {
+            StreamEventType::ContentBlockDelta { index, delta } => {
+                assert_eq!(index, 0);
+                if let ContentDelta::ThinkingDelta { thinking } = delta {
+                    assert_eq!(thinking, "pondering...");
+                } else {
+                    panic!("Expected ThinkingDelta");
+                }
+            }
+            _ => panic!("Expected ContentBlockDelta"),
+        }
+    }
+
+    #[test]
+    fn message_start_fields() {
+        let msg_start = MessageStart {
+            id: "msg_123".into(),
+            model: "claude".into(),
+            role: "assistant".into(),
+            usage: Some(Usage {
+                input_tokens: 100,
+                output_tokens: 0,
+                ..Default::default()
+            }),
+        };
+        assert_eq!(msg_start.id, "msg_123");
+        assert_eq!(msg_start.model, "claude");
+        assert_eq!(msg_start.role, "assistant");
+        assert!(msg_start.usage.is_some());
+    }
+
+    #[test]
+    fn message_delta_info_fields() {
+        let delta_info = MessageDeltaInfo {
+            stop_reason: Some("end_turn".into()),
+            stop_sequence: Some("</response>".into()),
+        };
+        assert_eq!(delta_info.stop_reason, Some("end_turn".into()));
+        assert_eq!(delta_info.stop_sequence, Some("</response>".into()));
+    }
+
+    #[test]
+    fn stream_error_fields() {
+        let error = StreamError {
+            error_type: "rate_limit".into(),
+            message: "Too many requests".into(),
+        };
+        assert_eq!(error.error_type, "rate_limit");
+        assert_eq!(error.message, "Too many requests");
+    }
 }

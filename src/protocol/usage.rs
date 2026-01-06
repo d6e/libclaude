@@ -166,4 +166,76 @@ mod tests {
         assert!(!json.contains("cache_read"));
         assert!(!json.contains("cache_creation"));
     }
+
+    #[test]
+    fn usage_new() {
+        let usage = Usage::new();
+        assert_eq!(usage.input_tokens, 0);
+        assert_eq!(usage.output_tokens, 0);
+        assert_eq!(usage.cache_read_input_tokens, 0);
+        assert_eq!(usage.cache_creation_input_tokens, 0);
+    }
+
+    #[test]
+    fn usage_add_assign() {
+        let mut usage1 = Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_input_tokens: 10,
+            cache_creation_input_tokens: 5,
+        };
+        let usage2 = Usage {
+            input_tokens: 200,
+            output_tokens: 100,
+            cache_read_input_tokens: 20,
+            cache_creation_input_tokens: 10,
+        };
+        usage1 += usage2;
+        assert_eq!(usage1.input_tokens, 300);
+        assert_eq!(usage1.output_tokens, 150);
+        assert_eq!(usage1.cache_read_input_tokens, 30);
+        assert_eq!(usage1.cache_creation_input_tokens, 15);
+    }
+
+    #[test]
+    fn usage_equality() {
+        let usage1 = Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+        };
+        let usage2 = Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+        };
+        assert_eq!(usage1, usage2);
+    }
+
+    #[test]
+    fn usage_clone() {
+        let usage = Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_input_tokens: 10,
+            cache_creation_input_tokens: 5,
+        };
+        let cloned = usage.clone();
+        assert_eq!(usage, cloned);
+    }
+
+    #[test]
+    fn serialize_includes_non_zero_cache() {
+        let usage = Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_input_tokens: 10,
+            cache_creation_input_tokens: 5,
+        };
+        let json = serde_json::to_string(&usage).unwrap();
+        assert!(json.contains("cache_read_input_tokens"));
+        assert!(json.contains("cache_creation_input_tokens"));
+    }
 }

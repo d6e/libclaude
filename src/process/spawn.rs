@@ -408,4 +408,247 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<ClaudeProcess>();
     }
+
+    #[test]
+    fn build_args_with_system_prompt() {
+        let config = crate::config::ClientConfig::builder()
+            .api_key("test")
+            .system_prompt("You are a helpful assistant")
+            .build()
+            .unwrap();
+
+        let args = build_args(&config);
+        assert!(args.contains(&"--system-prompt".to_string()));
+        assert!(args.contains(&"You are a helpful assistant".to_string()));
+    }
+
+    #[test]
+    fn build_args_with_append_system_prompt() {
+        let config = crate::config::ClientConfig::builder()
+            .api_key("test")
+            .append_system_prompt("Additional context")
+            .build()
+            .unwrap();
+
+        let args = build_args(&config);
+        assert!(args.contains(&"--append-system-prompt".to_string()));
+        assert!(args.contains(&"Additional context".to_string()));
+    }
+
+    #[test]
+    fn build_args_with_tools() {
+        let config = crate::config::ClientConfig::builder()
+            .api_key("test")
+            .tools(vec!["Read".to_string(), "Write".to_string()])
+            .build()
+            .unwrap();
+
+        let args = build_args(&config);
+        assert!(args.contains(&"--tools".to_string()));
+        assert!(args.contains(&"Read,Write".to_string()));
+    }
+
+    #[test]
+    fn build_args_with_empty_tools() {
+        let config = crate::config::ClientConfig::builder()
+            .api_key("test")
+            .tools(Vec::<String>::new())
+            .build()
+            .unwrap();
+
+        let args = build_args(&config);
+        assert!(args.contains(&"--tools".to_string()));
+        // Empty tools list results in empty string arg
+        let tools_idx = args.iter().position(|a| a == "--tools").unwrap();
+        assert_eq!(args[tools_idx + 1], "");
+    }
+
+    #[test]
+    fn build_args_with_allowed_tools() {
+        let config = crate::config::ClientConfig::builder()
+            .api_key("test")
+            .allowed_tools(vec!["Bash".to_string()])
+            .build()
+            .unwrap();
+
+        let args = build_args(&config);
+        assert!(args.contains(&"--allowedTools".to_string()));
+        assert!(args.contains(&"Bash".to_string()));
+    }
+
+    #[test]
+    fn build_args_with_disallowed_tools() {
+        let config = crate::config::ClientConfig::builder()
+            .api_key("test")
+            .disallowed_tools(vec!["Bash".to_string(), "Write".to_string()])
+            .build()
+            .unwrap();
+
+        let args = build_args(&config);
+        assert!(args.contains(&"--disallowedTools".to_string()));
+        assert!(args.contains(&"Bash,Write".to_string()));
+    }
+
+    #[test]
+    fn build_args_with_max_budget() {
+        let config = crate::config::ClientConfig::builder()
+            .api_key("test")
+            .max_budget_usd(5.0)
+            .build()
+            .unwrap();
+
+        let args = build_args(&config);
+        assert!(args.contains(&"--max-budget-usd".to_string()));
+        assert!(args.contains(&"5".to_string()));
+    }
+
+    #[test]
+    fn build_args_with_mcp_config() {
+        use std::path::PathBuf;
+        let config = crate::config::ClientConfig::builder()
+            .api_key("test")
+            .mcp_config(PathBuf::from("/tmp/mcp.json"))
+            .build()
+            .unwrap();
+
+        let args = build_args(&config);
+        assert!(args.contains(&"--mcp-config".to_string()));
+        assert!(args.contains(&"/tmp/mcp.json".to_string()));
+    }
+
+    #[test]
+    fn build_args_with_json_schema() {
+        let config = crate::config::ClientConfig::builder()
+            .api_key("test")
+            .json_schema(serde_json::json!({"type": "object"}))
+            .build()
+            .unwrap();
+
+        let args = build_args(&config);
+        assert!(args.contains(&"--json-schema".to_string()));
+    }
+
+    #[test]
+    fn build_args_with_session_id() {
+        let config = crate::config::ClientConfig::builder()
+            .api_key("test")
+            .session_id(crate::config::SessionId::new("test-session"))
+            .build()
+            .unwrap();
+
+        let args = build_args(&config);
+        assert!(args.contains(&"--resume".to_string()));
+        assert!(args.contains(&"test-session".to_string()));
+        // Should not have --continue when session_id is set
+        assert!(!args.contains(&"--continue".to_string()));
+    }
+
+    #[test]
+    fn build_args_with_include_partial_messages() {
+        let mut config = crate::config::ClientConfig::builder()
+            .api_key("test")
+            .build()
+            .unwrap();
+        config.include_partial_messages = true;
+
+        let args = build_args(&config);
+        assert!(args.contains(&"--include-partial-messages".to_string()));
+    }
+
+    #[test]
+    fn build_args_with_permission_mode_default() {
+        let config = crate::config::ClientConfig::builder()
+            .api_key("test")
+            .permission_mode(crate::config::PermissionMode::Default)
+            .build()
+            .unwrap();
+
+        let args = build_args(&config);
+        // Default mode should not add --permission-mode flag
+        assert!(!args.contains(&"--permission-mode".to_string()));
+    }
+
+    #[test]
+    fn build_args_with_permission_mode_plan() {
+        let config = crate::config::ClientConfig::builder()
+            .api_key("test")
+            .permission_mode(crate::config::PermissionMode::Plan)
+            .build()
+            .unwrap();
+
+        let args = build_args(&config);
+        assert!(args.contains(&"--permission-mode".to_string()));
+        assert!(args.contains(&"plan".to_string()));
+    }
+
+    #[test]
+    fn build_args_with_permission_mode_bypass_permissions() {
+        let config = crate::config::ClientConfig::builder()
+            .api_key("test")
+            .permission_mode(crate::config::PermissionMode::BypassPermissions)
+            .build()
+            .unwrap();
+
+        let args = build_args(&config);
+        assert!(args.contains(&"--permission-mode".to_string()));
+        assert!(args.contains(&"bypassPermissions".to_string()));
+    }
+
+    #[test]
+    fn build_args_with_all_models() {
+        for (model, expected) in [
+            (crate::config::Model::Sonnet, "sonnet"),
+            (crate::config::Model::Opus, "opus"),
+            (crate::config::Model::Haiku, "haiku"),
+        ] {
+            let config = crate::config::ClientConfig::builder()
+                .api_key("test")
+                .model(model)
+                .build()
+                .unwrap();
+
+            let args = build_args(&config);
+            assert!(args.contains(&"--model".to_string()));
+            assert!(args.contains(&expected.to_string()));
+        }
+    }
+
+    #[test]
+    fn version_below_min_edge_cases() {
+        // Test minor version comparison
+        assert!(version_below_min(&(2, 0, 0)) == false); // Equal to min
+        assert!(version_below_min(&(1, 99, 99))); // Major < min
+        assert!(!version_below_min(&(3, 0, 0))); // Major > min
+
+        // Test when major is equal
+        assert!(!version_below_min(&(2, 1, 0))); // Minor > min
+        assert!(!version_below_min(&(2, 0, 1))); // Patch > min
+    }
+
+    #[test]
+    fn parse_version_edge_cases() {
+        // Version with extra text
+        assert_eq!(
+            parse_version("claude cli v2.1.3-beta+build"),
+            Some((2, 1, 3))
+        );
+
+        // Only numbers
+        assert_eq!(parse_version("1.2.3"), Some((1, 2, 3)));
+
+        // With prefix 'v'
+        assert_eq!(parse_version("v3.4.5"), Some((3, 4, 5)));
+
+        // Multiple version-like strings (takes first valid)
+        assert_eq!(parse_version("1.2.3 and 4.5.6"), Some((1, 2, 3)));
+
+        // Two parts only - not valid
+        assert_eq!(parse_version("1.2"), None);
+
+        // Non-numeric
+        assert_eq!(parse_version("abc"), None);
+
+        // Empty
+        assert_eq!(parse_version(""), None);
+    }
 }

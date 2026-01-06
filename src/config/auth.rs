@@ -385,4 +385,113 @@ mod tests {
         let result = OAuthCredentials::load();
         assert!(result.is_ok()); // Should not error, just return None
     }
+
+    #[test]
+    fn resolved_auth_api_key_methods() {
+        let auth = ResolvedAuth::ApiKey("test-key".to_string());
+        assert_eq!(auth.env_var_name(), ENV_API_KEY);
+        assert_eq!(auth.secret(), "test-key");
+    }
+
+    #[test]
+    fn resolved_auth_oauth_token_methods() {
+        let auth = ResolvedAuth::OAuthToken("test-token".to_string());
+        assert_eq!(auth.env_var_name(), ENV_OAUTH_TOKEN);
+        assert_eq!(auth.secret(), "test-token");
+    }
+
+    #[test]
+    fn try_resolve_single_api_key() {
+        let result = try_resolve_single(&AuthMethod::ApiKey("my-key".to_string())).unwrap();
+        assert!(matches!(result, Some(ResolvedAuth::ApiKey(k)) if k == "my-key"));
+    }
+
+    #[test]
+    fn try_resolve_single_oauth_token() {
+        let result = try_resolve_single(&AuthMethod::OAuthToken("my-token".to_string())).unwrap();
+        assert!(matches!(result, Some(ResolvedAuth::OAuthToken(t)) if t == "my-token"));
+    }
+
+    #[test]
+    fn try_resolve_single_api_key_from_env_missing() {
+        // Ensure env var is not set for this test
+        std::env::remove_var(ENV_API_KEY);
+        let result = try_resolve_single(&AuthMethod::ApiKeyFromEnv).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn try_resolve_single_oauth_token_from_env_missing() {
+        // Ensure env var is not set for this test
+        std::env::remove_var(ENV_OAUTH_TOKEN);
+        let result = try_resolve_single(&AuthMethod::OAuthTokenFromEnv).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn oauth_credentials_scopes() {
+        let creds = OAuthCredentials {
+            access_token: "token".to_string(),
+            refresh_token: "refresh".to_string(),
+            expires_at: 0,
+            scopes: vec!["read".to_string(), "write".to_string()],
+        };
+        assert_eq!(creds.scopes.len(), 2);
+        assert_eq!(creds.scopes[0], "read");
+    }
+
+    #[test]
+    fn oauth_credentials_clone() {
+        let creds = OAuthCredentials {
+            access_token: "token".to_string(),
+            refresh_token: "refresh".to_string(),
+            expires_at: 12345,
+            scopes: vec!["scope1".to_string()],
+        };
+        let cloned = creds.clone();
+        assert_eq!(cloned.access_token, creds.access_token);
+        assert_eq!(cloned.expires_at, creds.expires_at);
+    }
+
+    #[test]
+    fn auth_method_variants_equality() {
+        assert_eq!(AuthMethod::Auto, AuthMethod::Auto);
+        assert_eq!(AuthMethod::OAuth, AuthMethod::OAuth);
+        assert_eq!(
+            AuthMethod::ApiKey("a".to_string()),
+            AuthMethod::ApiKey("a".to_string())
+        );
+        assert_ne!(
+            AuthMethod::ApiKey("a".to_string()),
+            AuthMethod::ApiKey("b".to_string())
+        );
+        assert_ne!(AuthMethod::Auto, AuthMethod::OAuth);
+    }
+
+    #[test]
+    fn auth_method_clone() {
+        let method = AuthMethod::ApiKey("secret".to_string());
+        let cloned = method.clone();
+        assert_eq!(method, cloned);
+    }
+
+    #[test]
+    fn resolve_auth_with_multiple_fallbacks() {
+        // Test that fallbacks are tried in order
+        let result = resolve_auth(
+            &AuthMethod::OAuthTokenFromEnv, // Will fail (no env var)
+            &[
+                AuthMethod::ApiKeyFromEnv,                        // Will fail (no env var)
+                AuthMethod::ApiKey("final-fallback".to_string()), // Should succeed
+            ],
+        );
+        let resolved = result.unwrap();
+        assert!(matches!(resolved, ResolvedAuth::ApiKey(k) if k == "final-fallback"));
+    }
+
+    #[test]
+    fn has_oauth_credentials_returns_bool() {
+        // Just test that the function returns a boolean without panicking
+        let _ = has_oauth_credentials();
+    }
 }

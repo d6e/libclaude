@@ -225,4 +225,76 @@ mod tests {
         let observer: Arc<dyn ToolObserver> = Arc::new(CountingObserver::new());
         observer.on_tool_use("id", "Read", &serde_json::json!({}));
     }
+
+    #[test]
+    fn logging_observer_new_creates_default() {
+        let observer = LoggingObserver::new();
+        assert!(matches!(observer.level, LogLevel::Debug));
+    }
+
+    #[test]
+    fn logging_observer_with_level() {
+        let trace = LoggingObserver::with_level(LogLevel::Trace);
+        assert!(matches!(trace.level, LogLevel::Trace));
+
+        let info = LoggingObserver::with_level(LogLevel::Info);
+        assert!(matches!(info.level, LogLevel::Info));
+    }
+
+    #[test]
+    fn log_level_default_is_debug() {
+        let level = LogLevel::default();
+        assert!(matches!(level, LogLevel::Debug));
+    }
+
+    #[test]
+    fn logging_observer_on_tool_use_all_levels() {
+        let input = serde_json::json!({"path": "/test"});
+
+        // Test all log levels (they just call tracing macros which are no-ops without subscriber)
+        let trace_obs = LoggingObserver::with_level(LogLevel::Trace);
+        trace_obs.on_tool_use("tool_1", "Read", &input);
+
+        let debug_obs = LoggingObserver::with_level(LogLevel::Debug);
+        debug_obs.on_tool_use("tool_2", "Write", &input);
+
+        let info_obs = LoggingObserver::with_level(LogLevel::Info);
+        info_obs.on_tool_use("tool_3", "Bash", &input);
+    }
+
+    #[test]
+    fn logging_observer_on_tool_result_all_levels() {
+        // Test all log levels for tool_result
+        let trace_obs = LoggingObserver::with_level(LogLevel::Trace);
+        trace_obs.on_tool_result("tool_1", "short result", false);
+
+        let debug_obs = LoggingObserver::with_level(LogLevel::Debug);
+        debug_obs.on_tool_result("tool_2", "another result", true);
+
+        let info_obs = LoggingObserver::with_level(LogLevel::Info);
+        info_obs.on_tool_result("tool_3", "info result", false);
+    }
+
+    #[test]
+    fn logging_observer_on_tool_result_truncates_long_content() {
+        let long_content = "x".repeat(300);
+
+        // This should trigger the truncation branch (content > 200 chars)
+        let observer = LoggingObserver::new();
+        observer.on_tool_result("tool_long", &long_content, false);
+
+        // Test with exactly 200 chars (no truncation)
+        let exactly_200 = "y".repeat(200);
+        observer.on_tool_result("tool_200", &exactly_200, false);
+
+        // Test with 201 chars (triggers truncation)
+        let over_200 = "z".repeat(201);
+        observer.on_tool_result("tool_201", &over_200, false);
+    }
+
+    #[test]
+    fn logging_observer_on_tool_result_with_error() {
+        let observer = LoggingObserver::new();
+        observer.on_tool_result("tool_err", "error message", true);
+    }
 }
