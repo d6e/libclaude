@@ -1,5 +1,8 @@
 # libclaude
 
+[![CI](https://github.com/anthropics/libclaude/actions/workflows/ci.yml/badge.svg)](https://github.com/anthropics/libclaude/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/anthropics/libclaude/graph/badge.svg)](https://codecov.io/gh/anthropics/libclaude)
+
 Async Rust wrapper for the Claude Code CLI.
 
 libclaude provides a typed, ergonomic interface for interacting with Claude from Rust applications. It handles subprocess management, JSON protocol communication, streaming responses, and multi-turn conversations.
