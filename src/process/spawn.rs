@@ -175,7 +175,14 @@ fn build_command(config: &ClientConfig) -> Result<Command> {
 
 /// Build CLI arguments (prompt is sent via stdin, not as argument).
 fn build_args(config: &ClientConfig) -> Vec<String> {
-    let mut args = vec!["--output-format".to_string(), "stream-json".to_string()];
+    // stream-json requires --verbose flag
+    // --include-partial-messages enables streaming TextDelta events
+    let mut args = vec![
+        "--verbose".to_string(),
+        "--output-format".to_string(),
+        "stream-json".to_string(),
+        "--include-partial-messages".to_string(),
+    ];
 
     if let Some(ref model) = config.model {
         args.push("--model".to_string());
@@ -382,6 +389,7 @@ mod tests {
             .unwrap();
 
         let args = build_args(&config);
+        assert!(args.contains(&"--verbose".to_string()));
         assert!(args.contains(&"--output-format".to_string()));
         assert!(args.contains(&"stream-json".to_string()));
         // Should NOT contain -p (prompt goes via stdin)
