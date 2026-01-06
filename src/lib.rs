@@ -153,7 +153,7 @@ pub use stream::{with_timeout, CollectedResponse, ResponseStream, SessionInfo, S
 // Process management
 // ============================================================================
 
-pub use process::{ClaudeProcess, ProcessReader, MIN_CLI_VERSION};
+pub use process::{ClaudeProcess, MessageReader, ProcessReader, MIN_CLI_VERSION};
 
 // ============================================================================
 // Tool observation

@@ -10,6 +10,21 @@ use tokio::process::{ChildStderr, ChildStdin, ChildStdout};
 use crate::protocol::CliMessage;
 use crate::{Error, Result};
 
+/// Trait for reading CLI messages from a source.
+///
+/// This trait abstracts over the message reading interface, allowing
+/// the response stream to work with both real process readers and
+/// mock implementations for testing.
+pub trait MessageReader: Send {
+    /// Read the next message from the source.
+    ///
+    /// Returns `Ok(Some(message))` for each message, `Ok(None)` when the
+    /// source is exhausted, or `Err` on errors.
+    fn read_message(
+        &mut self,
+    ) -> impl Future<Output = Result<Option<CliMessage>>> + Send;
+}
+
 /// Reads newline-delimited JSON messages from the CLI stdout.
 ///
 /// The CLI outputs one JSON message per line. This reader handles buffering
@@ -66,6 +81,12 @@ impl ProcessReader {
     /// This returns a stream that yields messages until EOF or error.
     pub fn into_stream(self) -> MessageStream {
         MessageStream { reader: self }
+    }
+}
+
+impl MessageReader for ProcessReader {
+    async fn read_message(&mut self) -> Result<Option<CliMessage>> {
+        ProcessReader::read_message(self).await
     }
 }
 

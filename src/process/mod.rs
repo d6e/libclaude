@@ -27,7 +27,7 @@
 mod io;
 mod spawn;
 
-pub use io::{ProcessReader, ProcessWriter};
+pub use io::{MessageReader, ProcessReader, ProcessWriter};
 pub use spawn::ClaudeProcess;
 
 /// Minimum CLI version required for full compatibility.

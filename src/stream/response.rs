@@ -15,7 +15,7 @@ use tokio::time::timeout as tokio_timeout;
 
 use super::events::{SessionInfo, StreamEvent};
 use crate::config::SessionId;
-use crate::process::ClaudeProcess;
+use crate::process::{ClaudeProcess, MessageReader};
 use crate::protocol::{
     AssistantMessage, CliMessage, ContentBlock, ContentBlockInfo, ContentDelta, ResultMessage,
     StreamEventType, SystemMessage, TextBlock, ThinkingBlock, ToolUseBlock, Usage,
@@ -110,9 +110,46 @@ impl ResponseStream {
         }
     }
 
+    /// Create a response stream from any message reader.
+    ///
+    /// This is primarily useful for testing with mock readers.
+    /// The reader will be consumed in a background task.
+    pub fn from_reader<R>(reader: R) -> Self
+    where
+        R: MessageReader + 'static,
+    {
+        Self::from_reader_with_observer(reader, None)
+    }
+
+    /// Create a response stream from any message reader with an observer.
+    ///
+    /// This is primarily useful for testing with mock readers.
+    pub fn from_reader_with_observer<R>(reader: R, observer: Option<Arc<dyn ToolObserver>>) -> Self
+    where
+        R: MessageReader + 'static,
+    {
+        let (tx, rx) = mpsc::channel(64);
+
+        // Spawn background reader task
+        let task_handle = tokio::spawn(async move {
+            let result = Self::read_loop(reader, tx.clone(), observer).await;
+            if let Err(e) = result {
+                let _ = tx.send(Err(e)).await;
+            }
+        });
+
+        Self {
+            rx,
+            state: None,
+            task_handle: Some(task_handle),
+            session_id: None,
+            total_usage: Usage::default(),
+        }
+    }
+
     /// Background loop that reads from the process and sends events.
-    async fn read_loop(
-        mut reader: crate::process::ProcessReader,
+    async fn read_loop<R: MessageReader>(
+        mut reader: R,
         tx: mpsc::Sender<Result<StreamEvent>>,
         observer: Option<Arc<dyn ToolObserver>>,
     ) -> Result<()> {
